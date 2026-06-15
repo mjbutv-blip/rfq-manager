@@ -19,7 +19,10 @@ import app.models  # noqa: E402, F401  触发所有模型注册
 config = context.config
 
 # 用环境变量覆盖 alembic.ini 中的占位 URL
-config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
+_db_url = os.environ["DATABASE_URL"]
+if _db_url.startswith("postgresql://"):
+    _db_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+config.set_main_option("sqlalchemy.url", _db_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
