@@ -30,7 +30,7 @@ export function setCurrentUsername(username: string): void {
 // ── Axios client ──────────────────────────────────────────────────────────────
 
 const client = axios.create({
-  baseURL: "/api/v1",
+  baseURL: (import.meta.env.VITE_API_URL ?? "") + "/api/v1",
   timeout: 15_000,
   headers: { "Content-Type": "application/json" },
 })
