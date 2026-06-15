@@ -51,3 +51,19 @@ export async function updateUser(username: string, data: {
 export async function deleteUser(username: string): Promise<void> {
   await api.delete(`/users/${username}`)
 }
+
+export async function createUser(data: {
+  username: string
+  display_name: string
+  password: string
+  role: string
+  group_name?: string | null
+  email?: string | null
+}): Promise<CurrentUser> {
+  const res = await api.post<CurrentUser>("/users", data)
+  return res.data
+}
+
+export async function resetUserPassword(username: string, new_password: string): Promise<void> {
+  await api.post(`/users/${username}/reset-password`, { new_password })
+}

@@ -17,7 +17,7 @@ import {
 } from "@ant-design/icons"
 import { useQuery } from "@tanstack/react-query"
 
-import { UserProvider, useCurrentUser } from "@/contexts/UserContext"
+import { UserProvider, useAuth, useCurrentUser } from "@/contexts/UserContext"
 import UserSwitcher from "@/components/UserSwitcher"
 import { fetchWarningSummary } from "@/api/warnings"
 
@@ -41,6 +41,15 @@ import RegisterPage        from "@/pages/RegisterPage"
 import UserManagePage      from "@/pages/UserManagePage"
 
 const { Header, Content } = Layout
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { isLoggedIn } = useAuth()
+  const { pathname } = useLocation()
+  if (!isLoggedIn) {
+    return <Navigate to="/login" state={{ from: pathname }} replace />
+  }
+  return <>{children}</>
+}
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -189,7 +198,7 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
-              <Route path="*" element={<AppLayout />} />
+              <Route path="*" element={<RequireAuth><AppLayout /></RequireAuth>} />
             </Routes>
           </UserProvider>
         </BrowserRouter>

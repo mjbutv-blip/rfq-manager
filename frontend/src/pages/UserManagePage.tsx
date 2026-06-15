@@ -5,9 +5,12 @@ import {
   Select, Table, Tag, Typography, message,
 } from "antd"
 import type { ColumnsType } from "antd/es/table"
-import { CheckOutlined, DeleteOutlined, EditOutlined, ReloadOutlined } from "@ant-design/icons"
+import {
+  CheckOutlined, DeleteOutlined, EditOutlined,
+  KeyOutlined, PlusOutlined, ReloadOutlined,
+} from "@ant-design/icons"
 
-import { fetchAllUsers, updateUser, deleteUser } from "@/api/auth"
+import { fetchAllUsers, updateUser, deleteUser, createUser, resetUserPassword } from "@/api/auth"
 import type { CurrentUser } from "@/types/user"
 import { ROLE_LABEL } from "@/types/user"
 import { useCurrentUser } from "@/contexts/UserContext"
@@ -24,10 +27,7 @@ const ROLE_OPTIONS = [
 ]
 
 const ROLE_COLOR: Record<string, string> = {
-  admin: "red",
-  group_leader: "blue",
-  sales: "green",
-  viewer: "default",
+  admin: "red", group_leader: "blue", sales: "green", viewer: "default",
 }
 
 const GROUP_OPTIONS = [
@@ -35,19 +35,14 @@ const GROUP_OPTIONS = [
   { label: "B组", value: "B组" },
 ]
 
-function EditUserModal({
-  user,
-  onClose,
-}: {
-  user: UserRow | null
-  onClose: () => void
-}) {
+// ── 编辑用户弹窗 ───────────────────────────────────────────────────────────────
+
+function EditUserModal({ user, onClose }: { user: UserRow | null; onClose: () => void }) {
   const qc = useQueryClient()
   const [form] = Form.useForm()
 
   const mutation = useMutation({
-    mutationFn: (values: Record<string, unknown>) =>
-      updateUser(user!.username, values),
+    mutationFn: (values: Record<string, unknown>) => updateUser(user!.username, values),
     onSuccess: () => {
       message.success("已更新")
       qc.invalidateQueries({ queryKey: ["all-users"] })
@@ -75,10 +70,10 @@ function EditUserModal({
         if (vis && user) {
           form.setFieldsValue({
             display_name: user.display_name ?? "",
-            role:         user.role,
-            group_name:   user.group_name ?? "",
-            is_active:    user.is_active,
-            is_pending:   user.is_pending,
+            role: user.role,
+            group_name: user.group_name ?? "",
+            is_active: user.is_active,
+            is_pending: user.is_pending,
           })
         }
       }}
@@ -110,10 +105,124 @@ function EditUserModal({
   )
 }
 
+// ── 创建用户弹窗 ───────────────────────────────────────────────────────────────
+
+function CreateUserModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [form] = Form.useForm()
+
+  const mutation = useMutation({
+    mutationFn: createUser,
+    onSuccess: () => {
+      message.success("用户已创建")
+      qc.invalidateQueries({ queryKey: ["all-users"] })
+      qc.invalidateQueries({ queryKey: ["users"] })
+      form.resetFields()
+      onClose()
+    },
+    onError: (e: Error) => message.error(e.message ?? "创建失败"),
+  })
+
+  return (
+    <Modal
+      title="创建用户"
+      open={open}
+      onCancel={() => { form.resetFields(); onClose() }}
+      onOk={() => form.validateFields().then(values => {
+        mutation.mutate({
+          ...values,
+          group_name: values.group_name || null,
+          email: values.email || null,
+        })
+      })}
+      confirmLoading={mutation.isPending}
+      destroyOnClose
+    >
+      <Form form={form} layout="vertical" size="small" initialValues={{ role: "sales" }}>
+        <Form.Item name="username" label="用户名" rules={[{ required: true, min: 2, max: 32 }]}>
+          <Input placeholder="登录用户名（英文/数字）" />
+        </Form.Item>
+        <Form.Item name="display_name" label="姓名" rules={[{ required: true }]}>
+          <Input placeholder="中文姓名" />
+        </Form.Item>
+        <Form.Item name="password" label="初始密码" rules={[{ required: true, min: 6 }]}>
+          <Input.Password placeholder="至少 6 位" />
+        </Form.Item>
+        <Form.Item name="role" label="角色" rules={[{ required: true }]}>
+          <Select options={ROLE_OPTIONS} />
+        </Form.Item>
+        <Form.Item name="group_name" label="所属小组">
+          <Select options={GROUP_OPTIONS} allowClear placeholder="可不选" />
+        </Form.Item>
+        <Form.Item name="email" label="邮箱（选填）">
+          <Input placeholder="可为空" />
+        </Form.Item>
+      </Form>
+    </Modal>
+  )
+}
+
+// ── 重置密码弹窗 ───────────────────────────────────────────────────────────────
+
+function ResetPasswordModal({
+  username,
+  onClose,
+}: { username: string | null; onClose: () => void }) {
+  const [form] = Form.useForm()
+
+  const mutation = useMutation({
+    mutationFn: ({ pwd }: { pwd: string }) => resetUserPassword(username!, pwd),
+    onSuccess: () => {
+      message.success("密码已重置")
+      form.resetFields()
+      onClose()
+    },
+    onError: (e: Error) => message.error(e.message ?? "重置失败"),
+  })
+
+  return (
+    <Modal
+      title={`重置密码：${username}`}
+      open={!!username}
+      onCancel={() => { form.resetFields(); onClose() }}
+      onOk={() => form.validateFields().then(values => mutation.mutate({ pwd: values.new_password }))}
+      confirmLoading={mutation.isPending}
+      destroyOnClose
+    >
+      <Form form={form} layout="vertical" size="small">
+        <Form.Item name="new_password" label="新密码" rules={[{ required: true, min: 6, message: "至少 6 位" }]}>
+          <Input.Password placeholder="至少 6 位" />
+        </Form.Item>
+        <Form.Item
+          name="confirm"
+          label="确认密码"
+          dependencies={["new_password"]}
+          rules={[
+            { required: true },
+            ({ getFieldValue }) => ({
+              validator(_, v) {
+                return !v || getFieldValue("new_password") === v
+                  ? Promise.resolve()
+                  : Promise.reject(new Error("两次密码不一致"))
+              },
+            }),
+          ]}
+        >
+          <Input.Password placeholder="再次输入" />
+        </Form.Item>
+      </Form>
+    </Modal>
+  )
+}
+
+// ── 主页面 ─────────────────────────────────────────────────────────────────────
+
 export default function UserManagePage() {
   const currentUser = useCurrentUser()
   const qc = useQueryClient()
   const [editTarget, setEditTarget] = useState<UserRow | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [resetTarget, setResetTarget] = useState<string | null>(null)
 
   const { data: users = [], isFetching } = useQuery({
     queryKey: ["all-users"],
@@ -148,9 +257,7 @@ export default function UserManagePage() {
 
   const columns: ColumnsType<UserRow> = [
     {
-      title: "用户名",
-      dataIndex: "username",
-      width: 120,
+      title: "用户名", dataIndex: "username", width: 120,
       render: (v: string, r) => (
         <span>
           {v}
@@ -159,26 +266,19 @@ export default function UserManagePage() {
       ),
     },
     {
-      title: "姓名",
-      dataIndex: "display_name",
-      width: 90,
+      title: "姓名", dataIndex: "display_name", width: 90,
       render: v => v ?? <Text type="secondary">—</Text>,
     },
     {
-      title: "角色",
-      dataIndex: "role",
-      width: 80,
+      title: "角色", dataIndex: "role", width: 80,
       render: (v: string) => <Tag color={ROLE_COLOR[v]}>{ROLE_LABEL[v as keyof typeof ROLE_LABEL] ?? v}</Tag>,
     },
     {
-      title: "小组",
-      dataIndex: "group_name",
-      width: 70,
+      title: "小组", dataIndex: "group_name", width: 70,
       render: v => v ? <Tag>{v}</Tag> : <Text type="secondary">—</Text>,
     },
     {
-      title: "状态",
-      width: 100,
+      title: "状态", width: 90,
       render: (_: unknown, r: UserRow) => {
         if (r.is_pending) return <Badge status="warning" text="待审批" />
         if (!r.is_active) return <Badge status="error" text="已停用" />
@@ -186,26 +286,18 @@ export default function UserManagePage() {
       },
     },
     {
-      title: "操作",
-      key: "action",
-      width: 140,
+      title: "操作", key: "action", width: 200,
       render: (_: unknown, r: UserRow) => (
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {r.is_pending && (
-            <Button
-              size="small" type="primary" icon={<CheckOutlined />}
+            <Button size="small" type="primary" icon={<CheckOutlined />}
               loading={approveMutation.isPending}
-              onClick={() => approveMutation.mutate(r.username)}
-            >
+              onClick={() => approveMutation.mutate(r.username)}>
               审批
             </Button>
           )}
-          <Button
-            size="small" icon={<EditOutlined />}
-            onClick={() => setEditTarget(r)}
-          >
-            编辑
-          </Button>
+          <Button size="small" icon={<EditOutlined />} onClick={() => setEditTarget(r)}>编辑</Button>
+          <Button size="small" icon={<KeyOutlined />} onClick={() => setResetTarget(r.username)}>重置密码</Button>
           {r.username !== currentUser.username && (
             <Popconfirm
               title={`确认删除用户 ${r.display_name ?? r.username}？`}
@@ -227,9 +319,10 @@ export default function UserManagePage() {
           用户管理
           {pending > 0 && <Badge count={pending} style={{ marginLeft: 8 }} />}
         </Typography.Title>
-        <Button icon={<ReloadOutlined />} onClick={() => qc.invalidateQueries({ queryKey: ["all-users"] })}>
-          刷新
-        </Button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button icon={<PlusOutlined />} type="primary" onClick={() => setCreateOpen(true)}>新建用户</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => qc.invalidateQueries({ queryKey: ["all-users"] })}>刷新</Button>
+        </div>
       </div>
 
       {pending > 0 && (
@@ -251,6 +344,8 @@ export default function UserManagePage() {
       </Card>
 
       <EditUserModal user={editTarget} onClose={() => setEditTarget(null)} />
+      <CreateUserModal open={createOpen} onClose={() => setCreateOpen(false)} />
+      <ResetPasswordModal username={resetTarget} onClose={() => setResetTarget(null)} />
 
       <style>{`
         .user-row-pending td { background-color: #fffbe6 !important; }

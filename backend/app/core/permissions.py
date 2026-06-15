@@ -54,7 +54,10 @@ async def get_current_user(
         if not username:
             raise HTTPException(status_code=401, detail="Token 格式错误")
     else:
-        # 2. X-Username header (dev fallback)
+        # 2. X-Username header (仅开发环境允许)
+        from app.config import settings
+        if settings.APP_ENV == "production":
+            raise HTTPException(status_code=401, detail="请先登录")
         username = (request.headers.get("X-Username") or DEFAULT_USERNAME).strip()
 
     result = await db.execute(select(User).where(User.username == username))

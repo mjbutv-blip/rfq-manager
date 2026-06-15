@@ -15,7 +15,10 @@ from passlib.context import CryptContext
 
 # ── 配置 ──────────────────────────────────────────────────────────────────────
 
-SECRET_KEY = "rfq-manager-secret-key-change-in-production-2026"
+def _get_secret() -> str:
+    from app.config import settings
+    return settings.SECRET_KEY
+
 ALGORITHM  = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24 * 7   # 7 天
 
@@ -38,11 +41,11 @@ def create_access_token(data: dict[str, Any]) -> str:
     payload = data.copy()
     expire = datetime.now(tz=timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     payload["exp"] = expire
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, _get_secret(), algorithm=ALGORITHM)
 
 
 def decode_access_token(token: str) -> dict[str, Any] | None:
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return jwt.decode(token, _get_secret(), algorithms=[ALGORITHM])
     except JWTError:
         return None

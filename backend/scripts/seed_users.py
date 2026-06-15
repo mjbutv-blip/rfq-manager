@@ -1,5 +1,5 @@
 """
-种子用户初始化脚本
+种子用户初始化脚本（正式密码版）
 
 用法（在 backend 目录执行）：
   python scripts/seed_users.py
@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy import select
 
+from app.core.auth import hash_password
 from app.database import AsyncSessionLocal
 from app.models import User
 
@@ -28,6 +29,8 @@ USERS = [
         "group_name":   None,
         "email":        None,
         "is_active":    True,
+        "is_pending":   False,
+        "password":     "admin123",
     },
     {
         "username":     "a_leader",
@@ -36,6 +39,8 @@ USERS = [
         "group_name":   "A组",
         "email":        None,
         "is_active":    True,
+        "is_pending":   False,
+        "password":     "leader123",
     },
     {
         "username":     "b_leader",
@@ -44,6 +49,8 @@ USERS = [
         "group_name":   "B组",
         "email":        None,
         "is_active":    True,
+        "is_pending":   False,
+        "password":     "leader123",
     },
     {
         "username":     "sales_a1",
@@ -52,30 +59,28 @@ USERS = [
         "group_name":   "A组",
         "email":        None,
         "is_active":    True,
+        "is_pending":   False,
+        "password":     "sales123",
     },
     {
         "username":     "sales_a2",
-        "display_name": "张伟",
+        "display_name": "李梅",
         "role":         "sales",
         "group_name":   "A组",
         "email":        None,
         "is_active":    True,
+        "is_pending":   False,
+        "password":     "sales123",
     },
     {
         "username":     "sales_b1",
-        "display_name": "李梅",
+        "display_name": "赵刚",
         "role":         "sales",
         "group_name":   "B组",
         "email":        None,
         "is_active":    True,
-    },
-    {
-        "username":     "sales_b2",
-        "display_name": "赵磊",
-        "role":         "sales",
-        "group_name":   "B组",
-        "email":        None,
-        "is_active":    True,
+        "is_pending":   False,
+        "password":     "sales123",
     },
     {
         "username":     "viewer_a",
@@ -84,6 +89,8 @@ USERS = [
         "group_name":   "A组",
         "email":        None,
         "is_active":    True,
+        "is_pending":   False,
+        "password":     "viewer123",
     },
 ]
 
@@ -92,17 +99,26 @@ async def seed() -> None:
     async with AsyncSessionLocal() as db:
         created = 0
         skipped = 0
+        updated = 0
         for data in USERS:
+            password = data.pop("password")
             result = await db.execute(select(User).where(User.username == data["username"]))
-            if result.scalar_one_or_none():
-                skipped += 1
-                print(f"  跳过（已存在）：{data['username']} / {data['display_name']}")
+            existing = result.scalar_one_or_none()
+            if existing:
+                # 如果已存在但没有密码，补上密码
+                if not existing.hashed_password:
+                    existing.hashed_password = hash_password(password)
+                    updated += 1
+                    print(f"  更新密码：{data['username']} / {data['display_name']}")
+                else:
+                    skipped += 1
+                    print(f"  跳过（已存在）：{data['username']} / {data['display_name']}")
             else:
-                db.add(User(**data))
+                db.add(User(**data, hashed_password=hash_password(password)))
                 created += 1
                 print(f"  创建：{data['username']} / {data['display_name']} / {data['role']}")
         await db.commit()
-        print(f"\n完成：新建 {created} 个，跳过 {skipped} 个")
+        print(f"\n完成：新建 {created} 个，更新密码 {updated} 个，跳过 {skipped} 个")
 
 
 if __name__ == "__main__":
