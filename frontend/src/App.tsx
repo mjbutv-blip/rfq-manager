@@ -6,6 +6,7 @@ import {
   BarChartOutlined,
   BellOutlined,
   ClockCircleOutlined,
+  CloudServerOutlined,
   ContactsOutlined,
   DashboardOutlined,
   ExperimentOutlined,
@@ -39,6 +40,7 @@ import ProductionDetailPage from "@/pages/ProductionDetailPage"
 import LoginPage           from "@/pages/LoginPage"
 import RegisterPage        from "@/pages/RegisterPage"
 import UserManagePage      from "@/pages/UserManagePage"
+import BackupPage          from "@/pages/BackupPage"
 
 const { Header, Content } = Layout
 
@@ -92,6 +94,8 @@ function AppLayout() {
     ? "productions"
     : pathname.startsWith("/user-manage")
     ? "user-manage"
+    : pathname.startsWith("/backups")
+    ? "backups"
     : pathname === "/dashboard"
     ? "dashboard"
     : "inquiries"
@@ -126,6 +130,9 @@ function AppLayout() {
     { key: "productions", icon: <OrderedListOutlined />, label: "生产跟单", onClick: () => navigate("/productions") },
     isAdmin
       ? { key: "user-manage", icon: <TeamOutlined />, label: "用户管理", onClick: () => navigate("/user-manage") }
+      : null,
+    isAdmin
+      ? { key: "backups", icon: <CloudServerOutlined />, label: "数据备份", onClick: () => navigate("/backups") }
       : null,
   ]
 
@@ -181,6 +188,7 @@ function AppLayout() {
           <Route path="/productions/:productionId" element={<ProductionDetailPage />} />
 
           <Route path="/user-manage"             element={<UserManagePage />} />
+          <Route path="/backups"                 element={<BackupPage />} />
 
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

@@ -8,7 +8,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import AsyncSessionLocal
 from app.routers import analytics, imports, inquiries, warnings
-from app.routers import transfers, operation_logs, customers, factories, users, samples, productions, auth
+from app.routers import transfers, operation_logs, customers, factories, users, samples, productions, auth, backups
 
 logger = logging.getLogger("rfq")
 
@@ -66,6 +66,7 @@ app.include_router(users.router,          prefix="/api/v1")
 app.include_router(samples.router,        prefix="/api/v1")
 app.include_router(productions.router,    prefix="/api/v1")
 app.include_router(auth.router,           prefix="/api/v1")
+app.include_router(backups.router,        prefix="/api/v1")
 
 
 # ── 系统健康检查 ──────────────────────────────────────────────────────────────

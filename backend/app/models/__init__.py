@@ -12,6 +12,7 @@ from app.models.factory import Factory
 from app.models.factory_quote_record import FactoryQuoteRecord
 from app.models.sample_record import SampleRecord
 from app.models.production_record import ProductionRecord
+from app.models.backup_record import BackupRecord
 
 __all__ = [
     "Customer",
@@ -28,4 +29,5 @@ __all__ = [
     "FactoryQuoteRecord",
     "SampleRecord",
     "ProductionRecord",
+    "BackupRecord",
 ]
