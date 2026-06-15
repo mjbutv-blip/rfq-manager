@@ -23,6 +23,8 @@ const UserContext = createContext<UserContextValue | null>(null)
 export function UserProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
   const [token, setToken] = useState<string | null>(getStoredToken)
+  // Immediately set on login so RequireAuth doesn't flicker back to /login
+  const [localUser, setLocalUser] = useState<CurrentUser | null>(null)
 
   // If JWT token present, fetch /auth/me; otherwise fall back to X-Username flow
   const { data: jwtUser } = useQuery({
@@ -55,12 +57,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
     )
   }, [users, devUsername])
 
-  const user: CurrentUser = token && jwtUser ? jwtUser : devUser
-  const isLoggedIn = !!token && !!jwtUser
+  const activeJwtUser = jwtUser ?? localUser
+  const user: CurrentUser = token && activeJwtUser ? activeJwtUser : devUser
+  const isLoggedIn = !!token && !!activeJwtUser
 
   const login = useCallback((newToken: string, newUser: CurrentUser) => {
     setStoredToken(newToken)
     setToken(newToken)
+    setLocalUser(newUser)
     setCurrentUsername(newUser.username)
     queryClient.invalidateQueries({ queryKey: ["me"] })
     queryClient.removeQueries({ predicate: q => q.queryKey[0] !== "users" && q.queryKey[0] !== "me" })
@@ -69,6 +73,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     clearStoredToken()
     setToken(null)
+    setLocalUser(null)
     queryClient.clear()
   }, [queryClient])
 
