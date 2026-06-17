@@ -435,8 +435,9 @@ export default function ImportPage() {
     }
   }, [entries, updateEntry, messageApi])
 
-  const idleCount  = entries.filter(e => e.status === "idle").length
-  const doneCount  = entries.filter(e => e.status === "done").length
+  const idleCount      = entries.filter(e => e.status === "idle").length
+  const previewedCount = entries.filter(e => e.status === "previewed").length
+  const doneCount      = entries.filter(e => e.status === "done").length
 
   return (
     <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
@@ -469,6 +470,15 @@ export default function ImportPage() {
               }
             }}>
               全部预览（{idleCount} 个）
+            </Button>
+          )}
+          {previewedCount > 0 && (
+            <Button type="primary" icon={<ImportOutlined />} onClick={async () => {
+              for (const e of entries.filter(e => e.status === "previewed")) {
+                await handleConfirm(e.uid)
+              }
+            }}>
+              全部确认导入（{previewedCount} 个）
             </Button>
           )}
           {doneCount > 0 && (
