@@ -650,11 +650,16 @@ def parse_excel_file(
     all_raw_headers = set(col_header.values())
     unmapped_headers = sorted(all_raw_headers - mapped_raw_headers)
 
-    # 哪个账号上传就写谁：忽略 Excel 里原有的负责业务员，强制改为当前登录账号
-    force_responsible_sales = (
+    # 业务员账号自己上传：强制写为本人，防止弄错/冒充他人。
+    # 管理员/组长上传：通常是帮业务员代传，不强制覆盖，按 Excel 里写的人名为准，
+    # 只有 Excel 没写时才用上传账号本人补默认值。
+    uploader_name = (
         getattr(scope_user, "display_name", None) or getattr(scope_user, "username", None)
         if scope_user is not None else None
     )
+    is_sales_uploader = scope_user is not None and getattr(scope_user, "role", None) == "sales"
+    force_responsible_sales = uploader_name if is_sales_uploader else None
+    default_responsible_sales = uploader_name if not is_sales_uploader else None
 
     # 逐行解析
     rows: list[ParsedRow] = []
@@ -683,6 +688,11 @@ def parse_excel_file(
             continue
 
         rows.append(pr)
+
+    # 管理员/组长上传且 Excel 未指定业务员时，默认归到上传账号本人名下
+    if default_responsible_sales:
+        for row in rows:
+            row.parsed_data.setdefault("responsible_sales", default_responsible_sales)
 
     # 正式模板：从 sheet 标题提取国家，scope_user 补充组别
     if is_formal:
