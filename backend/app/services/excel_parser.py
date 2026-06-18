@@ -243,7 +243,7 @@ def _coerce_field(field_name: str, raw_val: Any) -> tuple[Any, str | None]:
 def _parse_text_quantity(val: Any) -> tuple[int | None, str | None]:
     """
     解析中文描述性数量文本，如"00单：共34849件，分两批走货"。
-    取最后一个"共X件"/"共X卡"数字；无则取最后一个不跟"1卡"的"X件"数字。
+    取最后一个"共X件/套/卡"数字；无则取最后一个不跟"1卡"的"X件/套"数字。
     """
     if val is None:
         return None, None
@@ -254,19 +254,25 @@ def _parse_text_quantity(val: Any) -> tuple[int | None, str | None]:
     s = str(val).strip()
     if not s:
         return None, None
-    # 优先匹配"共X件"（合计件数），避免误取"共X卡"
-    matches = re.findall(r'共(\d+)件', s)
+    # 优先匹配"共X件/套"（合计数），避免误取分批小计或"共X卡"
+    matches = re.findall(r'共(\d+)[件套]', s)
     if matches:
         return int(matches[-1]), None
-    # 其次取最后一个"X件"且后面不是"1卡"（排除"2件1卡"中的件数）
-    matches = re.findall(r'(\d+)件(?!1卡)', s)
+    # 其次取最后一个"X件/套"且后面不是"1卡"（排除"2件1卡"中的件数）
+    matches = re.findall(r'(\d+)[件套](?!1卡)', s)
     if matches:
         return int(matches[-1]), None
     # 退而求其次取"共X卡"
     matches = re.findall(r'共(\d+)卡', s)
     if matches:
         return int(matches[-1]), None
-    return _parse_int(val)
+    # 兜底：只有当文本里最多含一段数字时才当作普通数值处理；
+    # 含多段数字的描述性文本（如多批次拆分说明）不做整数拼接，
+    # 避免产生超出 int32 范围的乱码数字，改为标记解析失败
+    numbers = re.findall(r'\d+', s)
+    if len(numbers) <= 1:
+        return _parse_int(val)
+    return None, f"数量文本无法识别件数/套数：{val!r}"
 
 
 def _parse_price_text(val: Any) -> tuple[Decimal | None, str | None]:
