@@ -382,6 +382,12 @@ async def confirm_import_rows(
 
         clean = _coerce_row_data(raw_parsed)
 
+        # 哪个账号上传就写谁：忽略前端传来的负责业务员，强制改为当前登录账号
+        if scope_user is not None:
+            clean["responsible_sales"] = (
+                getattr(scope_user, "display_name", None) or getattr(scope_user, "username", None)
+            )
+
         existing = await crud.get_inquiry_by_no(db, inquiry_no)
         if existing:
             exists += 1

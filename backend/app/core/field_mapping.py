@@ -50,10 +50,11 @@ FIELD_MAPPING: dict[str, str] = {
 }
 
 # ── 必填字段（缺失任意一个 → 该行标记为 failed）────────────────────────────────
+# 注：responsible_sales 不在此列——无论 Excel 是否填写，都会被上传账号强制覆盖
+# （见 excel_parser._parse_single_row 的 force_responsible_sales），不会缺失。
 REQUIRED_FIELDS: list[str] = [
     "inquiry_no",
     "group_name",
-    "responsible_sales",
     "product_name",
     "quantity",
     "inquiry_date",

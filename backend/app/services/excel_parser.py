@@ -313,19 +313,6 @@ def _is_formal_quotation_template(ws) -> bool:
     return False
 
 
-def _extract_sales_from_filename(file_name: str) -> str | None:
-    """
-    从文件名括号中提取负责业务员姓名，只保留中文字符。
-    "(润东扬F)" → "润东扬"；"(JohnSmith)" → None（无中文则不提取）。
-    """
-    name = re.sub(r'\.[a-zA-Z]+$', '', file_name)
-    match = re.search(r'[（(]([^）)]+)[）)]', name)
-    if not match:
-        return None
-    chinese_only = re.sub(r'[^一-鿿]', '', match.group(1))
-    return chinese_only or None
-
-
 def _extract_country_from_sheet(ws) -> str | None:
     """
     从总表 sheet 标题行提取客户国家。
@@ -348,19 +335,17 @@ def _extract_country_from_sheet(ws) -> str | None:
 def _fill_formal_defaults(
     row: "ParsedRow",
     scope_user: Any,
-    sales_name: str | None,
     country: str | None,
 ) -> None:
     """
-    正式模板行：将用户上下文和文件名推导出的字段写入 parsed_data。
-    - 文件名括号内中文名 → responsible_sales（优先于登录用户姓名）
-    - sheet 标题内国家词   → country
-    - 登录用户组别         → group_name
+    正式模板行：将用户上下文和 sheet 标题推导出的字段写入 parsed_data。
+    （responsible_sales 由上传账号强制覆盖，见 _parse_single_row 的
+    force_responsible_sales 参数，此处不再处理。）
+    - sheet 标题内国家词 → country
+    - 登录用户组别       → group_name
     """
     if scope_user is None:
         return
-    if "responsible_sales" not in row.parsed_data:
-        row.parsed_data["responsible_sales"] = sales_name or getattr(scope_user, "display_name", None)
     if "group_name" not in row.parsed_data and getattr(scope_user, "group_name", None):
         row.parsed_data["group_name"] = scope_user.group_name
     if country and "country" not in row.parsed_data:
@@ -525,10 +510,13 @@ def _parse_single_row(
     required_fields: list[str] | None = None,
     customer_identity_fields: list[str] | None = None,
     extra_coerce: dict[str, Any] | None = None,
+    force_responsible_sales: str | None = None,
 ) -> ParsedRow:
     """
     解析单行；status 暂定为 valid 或 failed（duplicate 在后续步骤检测）。
     extra_coerce: {field_name: callable(val) -> (value, error)} 覆盖特定字段的类型转换。
+    force_responsible_sales: 非空时强制覆盖 responsible_sales（哪个账号上传就写谁），
+    忽略 Excel 里原有的值。
     """
     if required_fields is None:
         required_fields = REQUIRED_FIELDS
@@ -563,6 +551,10 @@ def _parse_single_row(
             errors.append(err)
         elif val is not None:
             parsed_data[field_name] = val
+
+    # 哪个账号上传就写谁：强制覆盖 Excel 里的负责业务员，须在必填校验前完成
+    if force_responsible_sales:
+        parsed_data["responsible_sales"] = force_responsible_sales
 
     # 必填字段校验（用 is None 判断，允许数值 0 通过）
     for req in required_fields:
@@ -658,6 +650,12 @@ def parse_excel_file(
     all_raw_headers = set(col_header.values())
     unmapped_headers = sorted(all_raw_headers - mapped_raw_headers)
 
+    # 哪个账号上传就写谁：忽略 Excel 里原有的负责业务员，强制改为当前登录账号
+    force_responsible_sales = (
+        getattr(scope_user, "display_name", None) or getattr(scope_user, "username", None)
+        if scope_user is not None else None
+    )
+
     # 逐行解析
     rows: list[ParsedRow] = []
     for row_cells in ws.iter_rows(min_row=header_row + 1):
@@ -677,6 +675,7 @@ def parse_excel_file(
             required_fields=active_required,
             customer_identity_fields=active_identity,
             extra_coerce=row_extra_coerce,
+            force_responsible_sales=force_responsible_sales,
         )
 
         # 没有任何有效字段值的行跳过
@@ -685,12 +684,11 @@ def parse_excel_file(
 
         rows.append(pr)
 
-    # 正式模板：从文件名/sheet 标题提取业务员和国家，scope_user 补充组别
+    # 正式模板：从 sheet 标题提取国家，scope_user 补充组别
     if is_formal:
-        sales_name = _extract_sales_from_filename(file_name)
-        country    = _extract_country_from_sheet(ws)
+        country = _extract_country_from_sheet(ws)
         for row in rows:
-            _fill_formal_defaults(row, scope_user, sales_name, country)
+            _fill_formal_defaults(row, scope_user, country)
 
     # 自动填入产品大类（product_category 为空时根据品名推断）
     for row in rows:
