@@ -24,6 +24,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 import openpyxl
+import xlrd
 
 from app.core.category_detect import detect_product_category
 from app.core.field_mapping import (
@@ -360,6 +361,49 @@ def _fill_formal_defaults(
         row.parsed_data["country"] = country
 
 
+# ── 老版 .xls（二进制 OLE2）兼容 ─────────────────────────────────────────────────
+
+def _xls_cell_value(cell: "xlrd.sheet.Cell", book: "xlrd.book.Book") -> Any:
+    """把 xlrd 单元格值转换为与 openpyxl 一致的 Python 类型。"""
+    if cell.ctype == xlrd.XL_CELL_DATE:
+        return xlrd.xldate.xldate_as_datetime(cell.value, book.datemode)
+    if cell.ctype == xlrd.XL_CELL_BOOLEAN:
+        return bool(cell.value)
+    if cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
+        return None
+    if cell.ctype == xlrd.XL_CELL_NUMBER:
+        # 整数值用 int 表示，避免 18.0 这种多余的小数点
+        return int(cell.value) if cell.value == int(cell.value) else cell.value
+    return cell.value
+
+
+def _load_workbook(file_bytes: bytes) -> openpyxl.Workbook:
+    """
+    加载 Excel 文件为 openpyxl.Workbook。
+    自动识别老版二进制 .xls（OLE2 格式）并通过 xlrd 转换为等价的
+    openpyxl Workbook，使后续解析逻辑（依赖 openpyxl 的 cell/iter_rows API）
+    无需区分文件格式。
+    """
+    if file_bytes[:4] == b"PK\x03\x04":
+        return openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+
+    if file_bytes[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+        xls_book = xlrd.open_workbook(file_contents=file_bytes)
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+        for sheet in xls_book.sheets():
+            ws = wb.create_sheet(title=sheet.name)
+            for r in range(sheet.nrows):
+                for c in range(sheet.ncols):
+                    cell = sheet.cell(r, c)
+                    value = _xls_cell_value(cell, xls_book)
+                    if value is not None:
+                        ws.cell(row=r + 1, column=c + 1, value=value)
+        return wb
+
+    raise ValueError("文件不是有效的 Excel 文件（既不是 .xlsx 也不是 .xls 格式）")
+
+
 # ── Sheet / 表头识别 ────────────────────────────────────────────────────────────
 
 def _select_sheet(wb: openpyxl.Workbook) -> str:
@@ -545,7 +589,7 @@ def parse_excel_file(
       ValueError  — 无法识别任何列头
       openpyxl 抛出的异常 — 文件损坏或格式不支持
     """
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    wb = _load_workbook(file_bytes)
     sheet_name = _select_sheet(wb)
     ws = wb[sheet_name]
 
