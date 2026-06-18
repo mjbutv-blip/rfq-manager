@@ -383,6 +383,23 @@ def _xls_cell_value(cell: "xlrd.sheet.Cell", book: "xlrd.book.Book") -> Any:
     return cell.value
 
 
+def _materialize_readonly_workbook(ro_wb: openpyxl.Workbook) -> openpyxl.Workbook:
+    """
+    把 read_only 模式加载的 Workbook 转存为普通（可随机访问）的 openpyxl
+    Workbook。read_only 模式下的单元格（含 EmptyCell 占位）没有 .row/.column
+    属性，与后续解析逻辑（依赖 cell.column）不兼容，需要先转换。
+    """
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for ro_ws in ro_wb.worksheets:
+        ws = wb.create_sheet(title=ro_ws.title)
+        for r, row_cells in enumerate(ro_ws.iter_rows(), start=1):
+            for c, cell in enumerate(row_cells, start=1):
+                if cell.value is not None:
+                    ws.cell(row=r, column=c, value=cell.value)
+    return wb
+
+
 def _load_workbook(file_bytes: bytes) -> openpyxl.Workbook:
     """
     加载 Excel 文件为 openpyxl.Workbook。
@@ -391,7 +408,15 @@ def _load_workbook(file_bytes: bytes) -> openpyxl.Workbook:
     无需区分文件格式。
     """
     if file_bytes[:4] == b"PK\x03\x04":
-        return openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+        try:
+            return openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+        except ValueError:
+            # 部分由 WPS 等工具生成的文件，其内嵌图片/图表的 XML 不规范
+            # （如 panose 字体属性格式错误），导致 openpyxl 完整加载失败。
+            # 读取数据并不需要图片/图表，改用 read_only 模式可绕过该部分解析，
+            # 再转存为普通 Workbook 以保持与后续解析逻辑的兼容。
+            ro_wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
+            return _materialize_readonly_workbook(ro_wb)
 
     if file_bytes[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
         xls_book = xlrd.open_workbook(file_contents=file_bytes)
