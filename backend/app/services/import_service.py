@@ -22,6 +22,18 @@ from app.services.warning_service import scan_inquiry_warnings
 from app.services.excel_parser import ParseResult, parse_excel_file
 
 
+def _resolve_override_sales(override_sales: str | None, scope_user: Any) -> str | None:
+    """
+    只有 admin / group_leader 可以手动指定归属业务员；
+    sales 账号自己上传时始终归本人，忽略该参数（防止冒充他人）。
+    """
+    if not override_sales or scope_user is None:
+        return None
+    if getattr(scope_user, "role", None) not in ("admin", "group_leader"):
+        return None
+    return override_sales
+
+
 def _to_json_safe(d: dict[str, Any]) -> dict[str, Any]:
     """将 parsed_data / raw_data 中的 date / Decimal 转为 JSON 安全类型。"""
     out: dict[str, Any] = {}
@@ -45,15 +57,20 @@ async def preview_import(
     file_name: str,
     preview_limit: int = 50,
     scope_user=None,
+    override_sales: str | None = None,
 ) -> ImportPreviewResult:
     """
     解析 Excel + 查询 DB 判断每行状态。
     不写任何数据库记录。
     scope_user 不为 None 时，group_leader 角色会对跨组行标记为 failed。
+    override_sales：admin/group_leader 手动指定归属业务员时，覆盖 Excel/文件名/默认值。
     """
     from app.core.permissions import check_row_group_scope
 
-    result: ParseResult = parse_excel_file(file_bytes, file_name, scope_user=scope_user)
+    result: ParseResult = parse_excel_file(
+        file_bytes, file_name, scope_user=scope_user,
+        override_sales=_resolve_override_sales(override_sales, scope_user),
+    )
 
     new_rows = existing_rows = failed_rows = duplicate_rows = 0
     preview_rows: list[ParsedRowOut] = []
@@ -122,6 +139,7 @@ async def confirm_import(
     file_name: str,
     uploaded_by: str | None = None,
     scope_user=None,
+    override_sales: str | None = None,
 ) -> uuid.UUID:
     """
     正式写库：
@@ -132,10 +150,14 @@ async def confirm_import(
     - 解析失败：记录 error 日志，不写 inquiries
     调用方负责 commit。
     返回 import_batch_id。
+    override_sales：admin/group_leader 手动指定归属业务员时，覆盖 Excel/文件名/默认值。
     """
     from app.core.permissions import check_row_group_scope
 
-    result: ParseResult = parse_excel_file(file_bytes, file_name, scope_user=scope_user)
+    result: ParseResult = parse_excel_file(
+        file_bytes, file_name, scope_user=scope_user,
+        override_sales=_resolve_override_sales(override_sales, scope_user),
+    )
 
     batch = await crud.create_import_batch(db, {
         "file_name": file_name,
@@ -322,12 +344,16 @@ async def confirm_import_rows(
     rows: list[dict[str, Any]],
     uploaded_by: str | None = None,
     scope_user=None,
+    override_sales: str | None = None,
 ) -> uuid.UUID:
     """
     接收前端编辑后的行数据，直接写入 DB，不重新解析 Excel。
     用于可编辑预览确认导入场景。调用方负责 commit。
+    override_sales：admin/group_leader 手动指定归属业务员时，覆盖前端传来的值。
     """
     from app.core.permissions import check_row_group_scope
+
+    resolved_override_sales = _resolve_override_sales(override_sales, scope_user)
 
     batch = await crud.create_import_batch(db, {
         "file_name": file_name,
@@ -382,9 +408,10 @@ async def confirm_import_rows(
 
         clean = _coerce_row_data(raw_parsed)
 
-        # 业务员账号自己上传：强制写为本人；管理员/组长代传：不覆盖，
-        # 只在前端没填时用上传账号本人补默认值。
-        if scope_user is not None:
+        # 优先级：手动指定的归属业务员 > 业务员本人强制 > Excel/前端原值 > 上传账号默认值
+        if resolved_override_sales:
+            clean["responsible_sales"] = resolved_override_sales
+        elif scope_user is not None:
             uploader_name = (
                 getattr(scope_user, "display_name", None) or getattr(scope_user, "username", None)
             )

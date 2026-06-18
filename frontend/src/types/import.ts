@@ -32,6 +32,7 @@ export interface ConfirmRowItem {
 export interface ConfirmRowsRequest {
   file_name: string
   rows: ConfirmRowItem[]
+  override_sales?: string
 }
 
 export interface ImportBatch {

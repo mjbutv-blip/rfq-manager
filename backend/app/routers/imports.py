@@ -41,6 +41,7 @@ async def preview(
     request: Request,
     file: UploadFile = File(..., description="询单表 Excel"),
     preview_limit: int = Form(default=50, ge=1, le=200),
+    override_sales: str | None = Form(default=None, description="手动指定归属业务员（覆盖 Excel/文件名/默认值）"),
 ):
     """
     上传预览（不写库）。
@@ -57,6 +58,7 @@ async def preview(
             file_name=file.filename or "unknown.xlsx",
             preview_limit=preview_limit,
             scope_user=user,
+            override_sales=override_sales,
         )
         await safe_log(
             **log_kwargs_from_user(user),
@@ -86,6 +88,7 @@ async def confirm(
     user: UserDep,
     request: Request,
     file: UploadFile = File(..., description="询单表 Excel"),
+    override_sales: str | None = Form(default=None, description="手动指定归属业务员（覆盖 Excel/文件名/默认值）"),
 ):
     """
     确认导入（写库）。uploaded_by 自动取当前登录用户名。
@@ -101,6 +104,7 @@ async def confirm(
             file_name=file.filename or "unknown.xlsx",
             uploaded_by=user.username,
             scope_user=user,
+            override_sales=override_sales,
         )
         await db.commit()
     except ValueError as e:
@@ -147,6 +151,7 @@ async def confirm_rows(
             rows=[r.model_dump() for r in body.rows],
             uploaded_by=user.username,
             scope_user=user,
+            override_sales=body.override_sales,
         )
         await db.commit()
     except Exception as e:

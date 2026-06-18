@@ -597,11 +597,14 @@ def parse_excel_file(
     file_bytes: bytes,
     file_name: str,
     scope_user: Any = None,
+    override_sales: str | None = None,
 ) -> ParseResult:
     """
     解析询单表 Excel，不访问数据库。
     自动检测正式报价单汇总模板（总表 sheet + FOB 价格列），
     检测到时使用宽松必填规则并从 scope_user 补充组别/业务员默认值。
+    override_sales 非空时优先级最高，强制覆盖全部行的 responsible_sales
+    （调用方负责校验权限，此处不做角色检查）。
 
     返回 ParseResult，每行 status：
       valid     — 通过本地校验，仍需 DB 查询判断 new/existing
@@ -658,8 +661,8 @@ def parse_excel_file(
         if scope_user is not None else None
     )
     is_sales_uploader = scope_user is not None and getattr(scope_user, "role", None) == "sales"
-    force_responsible_sales = uploader_name if is_sales_uploader else None
-    default_responsible_sales = uploader_name if not is_sales_uploader else None
+    force_responsible_sales = override_sales or (uploader_name if is_sales_uploader else None)
+    default_responsible_sales = None if (override_sales or is_sales_uploader) else uploader_name
 
     # 逐行解析
     rows: list[ParsedRow] = []

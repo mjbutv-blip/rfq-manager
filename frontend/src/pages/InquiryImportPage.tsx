@@ -3,12 +3,13 @@ import { useCallback, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useQueryClient } from "@tanstack/react-query"
 import {
-  Alert, Badge, Button, Card, Col, Row, Space, Spin, Statistic, Table, Tag, Typography, Upload, message,
+  Alert, Badge, Button, Card, Col, Row, Select, Space, Spin, Statistic, Table, Tag, Typography, Upload, message,
 } from "antd"
 import { CheckCircleOutlined, DeleteOutlined, EyeOutlined, FileExcelOutlined, ImportOutlined, InboxOutlined } from "@ant-design/icons"
 import type { ColumnsType } from "antd/es/table"
 
 import { confirmImport, previewImport } from "@/api/imports"
+import { useCurrentUser, useUsers } from "@/contexts/UserContext"
 import type { ImportBatch, ImportPreviewResponse, PreviewRow } from "@/types/import"
 
 const { Text, Title } = Typography
@@ -258,6 +259,14 @@ export default function InquiryImportPage() {
   const [entries, setEntries] = useState<FileEntry[]>([])
   const uidRef = useRef(0)
 
+  const currentUser = useCurrentUser()
+  const allUsers = useUsers()
+  const canPickSales = currentUser.role === "admin" || currentUser.role === "group_leader"
+  const salesOptions = allUsers
+    .filter(u => u.role === "sales" && u.display_name)
+    .map(u => ({ value: u.display_name as string, label: u.display_name as string }))
+  const [overrideSales, setOverrideSales] = useState<string | undefined>(undefined)
+
   const updateEntry = useCallback((uid: string, patch: Partial<FileEntry>) => {
     setEntries(prev => prev.map(e => e.uid === uid ? { ...e, ...patch } : e))
   }, [])
@@ -277,26 +286,26 @@ export default function InquiryImportPage() {
     if (!entry) return
     updateEntry(uid, { status: "previewing", error: undefined })
     try {
-      const preview = await previewImport(entry.file, 200)
+      const preview = await previewImport(entry.file, 200, overrideSales)
       updateEntry(uid, { status: "previewed", preview })
     } catch (err) {
       updateEntry(uid, { status: "error", error: (err as Error).message })
     }
-  }, [entries, updateEntry])
+  }, [entries, updateEntry, overrideSales])
 
   const handleConfirm = useCallback(async (uid: string) => {
     const entry = entries.find(e => e.uid === uid)
     if (!entry?.preview || !canConfirmEntry(entry.preview)) return
     updateEntry(uid, { status: "importing" })
     try {
-      const batch = await confirmImport(entry.file)
+      const batch = await confirmImport(entry.file, undefined, overrideSales)
       updateEntry(uid, { status: "done", batch })
       messageApi.success(`「${entry.file.name}」导入完成：新增 ${batch.new_rows ?? 0} 条`)
     } catch (err) {
       updateEntry(uid, { status: "error", error: (err as Error).message })
       messageApi.error(`导入失败：${(err as Error).message}`)
     }
-  }, [entries, updateEntry, messageApi])
+  }, [entries, updateEntry, messageApi, overrideSales])
 
   const idleCount      = entries.filter(e => e.status === "idle").length
   const previewedCount = entries.filter(e => e.status === "previewed" && canConfirmEntry(e.preview)).length
@@ -316,6 +325,20 @@ export default function InquiryImportPage() {
     <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
       {contextHolder}
       <Title level={4} style={{ marginBottom: 20 }}>导入询单表</Title>
+
+      {canPickSales && (
+        <Space style={{ marginBottom: 16 }}>
+          <Text>归属业务员：</Text>
+          <Select
+            allowClear
+            style={{ width: 220 }}
+            placeholder="— 保持默认（Excel/文件名/本人） —"
+            value={overrideSales}
+            onChange={setOverrideSales}
+            options={salesOptions}
+          />
+        </Space>
+      )}
 
       <Dragger
         multiple

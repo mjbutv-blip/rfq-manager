@@ -14,3 +14,4 @@ class ConfirmRowItem(BaseModel):
 class ConfirmRowsRequest(BaseModel):
     file_name: str
     rows: list[ConfirmRowItem]
+    override_sales: str | None = None
