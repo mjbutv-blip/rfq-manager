@@ -117,6 +117,7 @@ async def list_logs(
     target_type:    str | None = Query(None),
     inquiry_no:     str | None = Query(None),
     status:         str | None = Query(None),
+    import_batch_id: str | None = Query(None, description="按导入批次筛选（匹配 after_data_json.import_batch_id）"),
     start_date:     date | None = Query(None),
     end_date:       date | None = Query(None),
     page:      int = Query(1, ge=1),
@@ -133,6 +134,8 @@ async def list_logs(
         q = q.where(OperationLog.target_type == target_type)
     if inquiry_no:
         q = q.where(OperationLog.inquiry_no.ilike(f"%{inquiry_no}%"))
+    if import_batch_id:
+        q = q.where(OperationLog.after_data_json["import_batch_id"].astext == import_batch_id)
     if status:
         q = q.where(OperationLog.status == status)
     if start_date:

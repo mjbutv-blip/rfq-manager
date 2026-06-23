@@ -7,8 +7,9 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import AsyncSessionLocal
-from app.routers import analytics, imports, inquiries, warnings
+from app.routers import analytics, imports, inquiries, inquiry_items, warnings
 from app.routers import transfers, operation_logs, customers, factories, users, samples, productions, auth, backups
+from app.routers import data_completion_tasks
 
 logger = logging.getLogger("rfq")
 
@@ -55,6 +56,7 @@ app.add_middleware(
 # ── 路由注册 ──────────────────────────────────────────────────────────────────
 
 app.include_router(inquiries.router, prefix="/api/v1")
+app.include_router(inquiry_items.router, prefix="/api/v1")
 app.include_router(imports.router,   prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(warnings.router,  prefix="/api/v1")
@@ -67,6 +69,7 @@ app.include_router(samples.router,        prefix="/api/v1")
 app.include_router(productions.router,    prefix="/api/v1")
 app.include_router(auth.router,           prefix="/api/v1")
 app.include_router(backups.router,        prefix="/api/v1")
+app.include_router(data_completion_tasks.router, prefix="/api/v1")
 
 
 # ── 系统健康检查 ──────────────────────────────────────────────────────────────

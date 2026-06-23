@@ -7,6 +7,7 @@ export interface FetchLogsParams {
   target_type?: string
   inquiry_no?: string
   status?: string
+  import_batch_id?: string
   start_date?: string
   end_date?: string
   page?: number

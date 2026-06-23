@@ -50,12 +50,15 @@ FIELD_MAPPING: dict[str, str] = {
 }
 
 # ── 必填字段（缺失任意一个 → 该行标记为 failed）────────────────────────────────
-# 注：responsible_sales 不在此列——无论 Excel 是否填写，都会被上传账号强制覆盖
+# 注 1：responsible_sales 不在此列——无论 Excel 是否填写，都会被上传账号强制覆盖
 # （见 excel_parser._parse_single_row 的 force_responsible_sales），不会缺失。
+# 注 2：product_name 不在此列——它在"新询单"场景下仍是必填的，但在"已有询单
+# 追加款式"场景下可能缺失也应允许被识别为 existing_inquiry_item_uncertain
+# 而不是在解析阶段就直接 failed（这个判断依赖 DB 查询，纯解析层做不到，因此
+# 改为在 import_service 的 DB 层分类之后、仅对 status == "new" 的行单独校验）。
 REQUIRED_FIELDS: list[str] = [
     "inquiry_no",
     "group_name",
-    "product_name",
     "quantity",
     "inquiry_date",
 ]
@@ -111,3 +114,49 @@ FORMAL_TEMPLATE_FIELD_MAPPING: dict[str, str] = {
 
 # 正式模板宽松必填：日期/组别/业务员/客户标识由导入用户上下文补充，不强制要求在 Excel 中存在
 FORMAL_REQUIRED_FIELDS: list[str] = ["inquiry_no", "product_name"]
+
+
+# ── 款式级（inquiry_items）字段映射 ──────────────────────────────────────────────
+# 这些字段描述的是"一行 Excel = 一个款式明细"，与上面的询单级字段分开维护，
+# 在解析阶段会与 FIELD_MAPPING / FORMAL_TEMPLATE_FIELD_MAPPING 合并使用，
+# 写库时再由 import_service 拆分到 inquiries（询单级）和 inquiry_items（款式级）两张表。
+#
+# "常规工艺"和"特殊工艺"映射到内部临时字段（_regular_process_text /
+# _special_process_text），不直接等同于最终的 process_description——
+# import_service 会把两者拼接为 process_description，同时把原始文字分别保存进
+# extra_data，避免“是否特殊工艺”这个信息在拼接时丢失。
+REGULAR_PROCESS_TEXT_FIELD = "_regular_process_text"
+SPECIAL_PROCESS_TEXT_FIELD = "_special_process_text"
+
+# "数量单位"暂不建数据库列，先映射到内部字段，由 import_service 转存进
+# inquiry_items.extra_data["quantity_unit"]，不写入任何固定列。
+QUANTITY_UNIT_TEMP_FIELD = "_quantity_unit_text"
+
+ITEM_FIELD_MAPPING: dict[str, str] = {
+    "款号":         "style_no",
+    "款式编号":     "style_no",
+    "款号/型号":    "style_no",
+
+    "报价单填报人": "quote_prepared_by",
+    "填报人":       "quote_prepared_by",
+    "报价制作人":   "quote_prepared_by",
+
+    "工艺":         "process_description",
+    "工艺要求":     "process_description",
+    "常规工艺":     REGULAR_PROCESS_TEXT_FIELD,
+    "特殊工艺":     SPECIAL_PROCESS_TEXT_FIELD,
+
+    "尺码范围":     "size_range",
+    "尺码":         "size_range",
+
+    "数量单位":     QUANTITY_UNIT_TEMP_FIELD,
+}
+
+# 款式级字段中，按"一个款式"为粒度落到 inquiry_items 的最终字段名
+# （不含两个内部临时字段，它们会在 import_service 中被合并/转存后丢弃）
+ITEM_LEVEL_FIELDS: frozenset[str] = frozenset({
+    "style_no",
+    "quote_prepared_by",
+    "process_description",
+    "size_range",
+})

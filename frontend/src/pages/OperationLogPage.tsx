@@ -1,8 +1,8 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import {
-  Button, Card, Col, DatePicker, Descriptions, Input, Row,
+  Alert, Button, Card, Col, DatePicker, Descriptions, Input, Row,
   Select, Table, Tag, Tooltip, Typography,
 } from "antd"
 import type { ColumnsType } from "antd/es/table"
@@ -93,12 +93,19 @@ function ExpandedRow({ record }: { record: OperationLog }) {
 export default function OperationLogPage() {
   const navigate = useNavigate()
   const currentUser = useCurrentUser()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // 支持从其他页面带参数跳转过来（例如导入页"查看失败行" -> 按
+  // import_batch_id + action_type=import_row_write_failed 预筛选）。
+  const initialBatchId = searchParams.get("import_batch_id") || ""
+  const initialAction  = searchParams.get("action_type") || ""
 
   const [filterActor,    setFilterActor]    = useState("")
-  const [filterAction,   setFilterAction]   = useState("")
+  const [filterAction,   setFilterAction]   = useState(initialAction)
   const [filterTarget,   setFilterTarget]   = useState("")
   const [filterInqNo,    setFilterInqNo]    = useState("")
   const [filterStatus,   setFilterStatus]   = useState("")
+  const [filterBatchId,  setFilterBatchId]  = useState(initialBatchId)
   const [filterDates,    setFilterDates]    = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null])
   const [page, setPage]                     = useState(1)
 
@@ -108,10 +115,20 @@ export default function OperationLogPage() {
     target_type:    filterTarget   || undefined,
     inquiry_no:     filterInqNo    || undefined,
     status:         filterStatus   || undefined,
+    import_batch_id: filterBatchId || undefined,
     start_date:     filterDates[0] ? filterDates[0].format("YYYY-MM-DD") : undefined,
     end_date:       filterDates[1] ? filterDates[1].format("YYYY-MM-DD") : undefined,
     page,
     page_size: 50,
+  }
+
+  const clearBatchFilter = () => {
+    setFilterBatchId("")
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.delete("import_batch_id")
+      return next
+    })
   }
 
   const { data, isFetching, refetch } = useQuery({
@@ -123,6 +140,7 @@ export default function OperationLogPage() {
   const handleReset = () => {
     setFilterActor(""); setFilterAction(""); setFilterTarget("")
     setFilterInqNo(""); setFilterStatus(""); setFilterDates([null, null])
+    clearBatchFilter()
     setPage(1)
   }
 
@@ -180,6 +198,22 @@ export default function OperationLogPage() {
         ),
     },
     {
+      title: "Excel 行号",
+      width: 80,
+      render: (_: unknown, r: OperationLog) => {
+        const v = r.after_data_json?.row_number
+        return v != null ? String(v) : <Text type="secondary">—</Text>
+      },
+    },
+    {
+      title: "款号",
+      width: 90,
+      render: (_: unknown, r: OperationLog) => {
+        const v = r.after_data_json?.style_no
+        return v ? String(v) : <Text type="secondary">—</Text>
+      },
+    },
+    {
       title: "描述",
       dataIndex: "description",
       ellipsis: { showTitle: false },
@@ -219,6 +253,14 @@ export default function OperationLogPage() {
         <Typography.Title level={4} style={{ margin: 0 }}>{pageTitle}</Typography.Title>
         <Button icon={<ReloadOutlined />} onClick={() => refetch()}>刷新</Button>
       </div>
+
+      {filterBatchId && (
+        <Alert
+          type="info" showIcon style={{ marginBottom: 12 }}
+          message={`已按导入批次筛选（batch_id: ${filterBatchId}）`}
+          action={<Button size="small" onClick={clearBatchFilter}>清除筛选</Button>}
+        />
+      )}
 
       {/* 筛选栏 */}
       <Card size="small" style={{ marginBottom: 12 }}>

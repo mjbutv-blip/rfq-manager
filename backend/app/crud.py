@@ -9,6 +9,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Customer, ImportBatch, ImportRow, Inquiry
+from app.models.inquiry_item import InquiryItem
 from app.schemas.inquiry import InquiryFilter
 
 
@@ -92,6 +93,28 @@ async def create_inquiry(db: AsyncSession, data: dict[str, Any]) -> Inquiry:
     db.add(inq)
     await db.flush()
     return inq
+
+
+# ── InquiryItem ───────────────────────────────────────────────────────────────
+
+async def create_inquiry_item(
+    db: AsyncSession, inquiry_id: uuid.UUID, inquiry_no: str | None, data: dict[str, Any]
+) -> InquiryItem:
+    item = InquiryItem(inquiry_id=inquiry_id, inquiry_no=inquiry_no, **data)
+    db.add(item)
+    await db.flush()
+    return item
+
+
+async def get_inquiry_item(db: AsyncSession, item_id: uuid.UUID) -> InquiryItem | None:
+    return await db.get(InquiryItem, item_id)
+
+
+async def list_inquiry_items(db: AsyncSession, inquiry_id: uuid.UUID) -> list[InquiryItem]:
+    result = await db.execute(
+        select(InquiryItem).where(InquiryItem.inquiry_id == inquiry_id).order_by(InquiryItem.created_at)
+    )
+    return list(result.scalars().all())
 
 
 _MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]

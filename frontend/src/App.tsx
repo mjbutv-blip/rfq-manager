@@ -5,11 +5,13 @@ import zhCN from "antd/locale/zh_CN"
 import {
   BarChartOutlined,
   BellOutlined,
+  CheckSquareOutlined,
   ClockCircleOutlined,
   CloudServerOutlined,
   ContactsOutlined,
   DashboardOutlined,
   ExperimentOutlined,
+  FileSearchOutlined,
   FileTextOutlined,
   OrderedListOutlined,
   ShopOutlined,
@@ -27,6 +29,14 @@ import InquiryTablePage    from "@/pages/InquiryTable"
 import InquiryDetailPage   from "@/pages/InquiryDetail"
 import InquiryImportPage   from "@/pages/InquiryImportPage"
 import AnalyticsPage       from "@/pages/AnalyticsPage"
+import QuoteDataQualityPage from "@/pages/QuoteDataQualityPage"
+import CustomerCategoryStylesPage from "@/pages/CustomerCategoryStylesPage"
+import ProcessAnalysisPage from "@/pages/ProcessAnalysisPage"
+import SizeAnalysisPage from "@/pages/SizeAnalysisPage"
+import QuantityAnalysisPage from "@/pages/QuantityAnalysisPage"
+import PreparerAnalysisPage from "@/pages/PreparerAnalysisPage"
+import QuoteAnalysisOverviewPage from "@/pages/QuoteAnalysisOverviewPage"
+import DataCompletionTasksPage from "@/pages/DataCompletionTasksPage"
 import WarningPage         from "@/pages/WarningPage"
 import OperationLogPage    from "@/pages/OperationLogPage"
 import CustomerListPage    from "@/pages/CustomerListPage"
@@ -78,10 +88,26 @@ function AppLayout() {
 
   const selectedKey = pathname.startsWith("/import")
     ? "import"
+    : pathname.startsWith("/quote-data-quality")
+    ? "quote-data-quality"
+    : pathname.startsWith("/customer-category-styles")
+    ? "customer-category-styles"
+    : pathname.startsWith("/process-analysis")
+    ? "process-analysis"
+    : pathname.startsWith("/size-analysis")
+    ? "size-analysis"
+    : pathname.startsWith("/quantity-analysis")
+    ? "quantity-analysis"
+    : pathname.startsWith("/quote-preparer-analysis")
+    ? "quote-preparer-analysis"
+    : pathname.startsWith("/quote-analysis-overview")
+    ? "quote-analysis-overview"
     : pathname.startsWith("/analytics")
     ? "analytics"
     : pathname.startsWith("/warnings")
     ? "warnings"
+    : pathname.startsWith("/data-completion-tasks")
+    ? "data-completion-tasks"
     : pathname.startsWith("/operation-logs")
     ? "operation-logs"
     : pathname.startsWith("/customers")
@@ -109,6 +135,13 @@ function AppLayout() {
       ? { key: "import", icon: <UploadOutlined />, label: "导入询单", onClick: () => navigate("/import") }
       : null,
     { key: "analytics", icon: <BarChartOutlined />, label: "数据分析", onClick: () => navigate("/analytics") },
+    { key: "quote-analysis-overview", icon: <FileSearchOutlined />, label: "报价资料分析总览", onClick: () => navigate("/quote-analysis-overview") },
+    { key: "quote-data-quality", icon: <FileSearchOutlined />, label: "报价资料完整度", onClick: () => navigate("/quote-data-quality") },
+    { key: "customer-category-styles", icon: <BarChartOutlined />, label: "客户品类款式分析", onClick: () => navigate("/customer-category-styles") },
+    { key: "process-analysis", icon: <BarChartOutlined />, label: "产品工艺分析", onClick: () => navigate("/process-analysis") },
+    { key: "size-analysis", icon: <BarChartOutlined />, label: "尺码范围分析", onClick: () => navigate("/size-analysis") },
+    { key: "quantity-analysis", icon: <BarChartOutlined />, label: "报价数量分析", onClick: () => navigate("/quantity-analysis") },
+    { key: "quote-preparer-analysis", icon: <BarChartOutlined />, label: "报价填报人分析", onClick: () => navigate("/quote-preparer-analysis") },
     canViewWarnings
       ? {
           key: "warnings",
@@ -121,6 +154,7 @@ function AppLayout() {
           onClick: () => navigate("/warnings"),
         }
       : null,
+    { key: "data-completion-tasks", icon: <CheckSquareOutlined />, label: "资料补录任务", onClick: () => navigate("/data-completion-tasks") },
     canViewLogs
       ? { key: "operation-logs", icon: <ClockCircleOutlined />, label: "操作日志", onClick: () => navigate("/operation-logs") }
       : null,
@@ -170,6 +204,14 @@ function AppLayout() {
           <Route path="/import" element={<InquiryImportPage />} />
 
           <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/quote-data-quality" element={<QuoteDataQualityPage />} />
+          <Route path="/customer-category-styles" element={<CustomerCategoryStylesPage />} />
+          <Route path="/process-analysis" element={<ProcessAnalysisPage />} />
+          <Route path="/size-analysis" element={<SizeAnalysisPage />} />
+          <Route path="/quantity-analysis" element={<QuantityAnalysisPage />} />
+          <Route path="/quote-preparer-analysis" element={<PreparerAnalysisPage />} />
+          <Route path="/quote-analysis-overview" element={<QuoteAnalysisOverviewPage />} />
+          <Route path="/data-completion-tasks" element={<DataCompletionTasksPage />} />
 
           <Route path="/warnings" element={<WarningPage />} />
 

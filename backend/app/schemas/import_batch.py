@@ -15,8 +15,11 @@ class ImportBatchBase(BaseModel):
     success_rows: int | None = None
     failed_rows: int | None = None
     new_rows: int | None = None             # 其中属于新增询单的行数
-    existing_rows: int | None = None        # 其中已存在（跳过）的行数
-    duplicate_rows: int | None = None       # 文件内部重复 inquiry_no 的行数
+    existing_rows: int | None = None        # 其中为已有询单追加新款式（existing_inquiry_new_item）的行数
+    duplicate_rows: int | None = None       # 同一询单号下重复款式明细（duplicate_item）的行数
+    uncertain_rows: int | None = None       # 已有询单但无法判断款式新旧（existing_inquiry_item_uncertain）的行数
+    validation_failed_rows: int | None = None  # 写库前就判定不可导入（权限/必填字段缺失等）
+    write_failed_rows: int | None = None       # 原本可导入，但实际写库时数据库异常（已被 savepoint 隔离，不影响其他行）
     status: str = "pending"
     error_message: str | None = None
 
@@ -48,7 +51,7 @@ class PreviewRow(BaseModel):
 
     row_number: int
     inquiry_no: str | None = None
-    # new=将新增 / exists=已存在(跳过) / duplicate=文件内重复 / error=解析失败
+    # new=将新增 / exists=已存在(跳过) / duplicate_item=同询单号重复款式明细 / error=解析失败
     status: str
     parsed: dict[str, Any] = {}
     raw_data: dict[str, Any] = {}      # 新增：中文表头 → 原始值
@@ -63,7 +66,7 @@ class ImportPreviewResponse(BaseModel):
     total_rows: int
     new_count: int           # 将新增
     exists_count: int        # 已存在（确认导入时跳过）
-    duplicate_count: int = 0 # 新增：文件内部重复
+    duplicate_count: int = 0 # 同询单号重复款式明细（duplicate_item）
     error_count: int         # 解析失败
     column_mapping: dict[str, str] = {}      # 字段名 → Excel 列头原始名
     missing_headers: list[str] = []          # 新增：必填字段无对应列

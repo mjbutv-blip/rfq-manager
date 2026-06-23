@@ -1,14 +1,14 @@
 import React, { useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Alert, Badge, Breadcrumb, Button, Card, Col, DatePicker,
+  Alert, Badge, Breadcrumb, Button, Card, Checkbox, Col, Collapse, DatePicker, Drawer,
   Descriptions, Form, Input, InputNumber, Modal, Popconfirm, Row, Select,
   Space, Spin, Table, Tag, Tooltip, Typography, message,
 } from "antd"
 import { CheckOutlined, FileExcelOutlined, SendOutlined } from "@ant-design/icons"
 import {
-  ArrowLeftOutlined, DeleteOutlined, EditOutlined, HomeOutlined,
+  ArrowLeftOutlined, DeleteOutlined, EditOutlined, HomeOutlined, PlusOutlined,
   SaveOutlined, CloseOutlined,
 } from "@ant-design/icons"
 import dayjs from "dayjs"
@@ -19,6 +19,11 @@ import { createTransfer, fetchInquiryTransfers, getFactoryContractUrl, getFinanc
 import { createQuoteRecord, fetchInquiryFactoryQuoteRecords } from "@/api/factories"
 import { createSample, fetchInquirySamples } from "@/api/samples"
 import { fetchInquiryProductions } from "@/api/productions"
+import {
+  createInquiryStyleItem, createInquiryStyleProcess, createInquiryStyleSize,
+  deleteInquiryStyleItem, deleteInquiryStyleProcess, deleteInquiryStyleSize,
+  fetchInquiryStyleItem, fetchInquiryStyleItems, updateInquiryStyleItem,
+} from "@/api/inquiry_items"
 import { PRODUCTION_STATUS_COLOR, PRODUCTION_STATUS_LABEL } from "@/types/production"
 import { SAMPLE_STATUS_COLOR, SAMPLE_STATUS_LABEL, SAMPLE_TYPE_LABEL, SAMPLE_TYPE_OPTIONS, FEE_PAID_BY_OPTIONS } from "@/types/sample"
 import { useCurrentUser } from "@/contexts/UserContext"
@@ -28,6 +33,9 @@ import type { InquiryWarning } from "@/types/warning"
 import { WARNING_LEVEL_COLOR, WARNING_LEVEL_LABEL, WARNING_TYPE_LABEL } from "@/types/warning"
 import type { TransferOrder, TransferResponse } from "@/types/transfer"
 import { TRANSFER_STATUS_COLOR, TRANSFER_STATUS_LABEL } from "@/types/transfer"
+import type { InquiryStyleItem } from "@/types/inquiry_style_item"
+import { fetchActiveTaskForItem } from "@/api/data_completion_tasks"
+import { TASK_STATUS_COLOR, TASK_STATUS_LABEL } from "@/types/data_completion_task"
 
 const { Title, Text } = Typography
 
@@ -727,6 +735,543 @@ function ProductionCard({ inquiryId }: { inquiryId: string }) {
   )
 }
 
+// ── 款式明细 / 报价资料 ────────────────────────────────────────────────────────
+
+function apiErrorDetail(e: unknown, fallback: string): string {
+  const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+  return msg ?? fallback
+}
+
+function StyleSizeRangeCell({ item }: { item: InquiryStyleItem }) {
+  if (item.sizes.length > 0) {
+    const shown = item.sizes.slice(0, 3)
+    const rest = item.sizes.length - shown.length
+    return (
+      <Space size={4} wrap>
+        {shown.map(s => (
+          <Tag key={s.id} color={s.is_special_size ? "gold" : "default"} style={{ marginRight: 0 }}>
+            {s.size_code}
+          </Tag>
+        ))}
+        {rest > 0 && <Tag style={{ marginRight: 0 }}>+{rest}</Tag>}
+      </Space>
+    )
+  }
+  if (item.size_range) return <span>{item.size_range}</span>
+  return <Text type="secondary">未填写</Text>
+}
+
+function StyleTaskCell({ itemId }: { itemId: string }) {
+  const navigate = useNavigate()
+  const { data: task } = useQuery({
+    queryKey: ["active-completion-task", itemId],
+    queryFn: () => fetchActiveTaskForItem(itemId),
+  })
+  if (!task) return <Text type="secondary">—</Text>
+  return (
+    <Tag
+      color={TASK_STATUS_COLOR[task.status]}
+      style={{ cursor: "pointer", marginRight: 0 }}
+      onClick={() => navigate("/data-completion-tasks")}
+    >
+      {TASK_STATUS_LABEL[task.status]}
+    </Tag>
+  )
+}
+
+function StyleProcessCell({ item }: { item: InquiryStyleItem }) {
+  if (item.processes.length === 0) return <Text type="secondary">未填写</Text>
+  const shown = item.processes.slice(0, 3)
+  const rest = item.processes.length - shown.length
+  return (
+    <Space size={4} wrap>
+      {shown.map(p => (
+        <Tag key={p.id} color={p.is_special ? "purple" : "blue"} style={{ marginRight: 0 }}>
+          {p.process_tag}
+        </Tag>
+      ))}
+      {rest > 0 && <Tag style={{ marginRight: 0 }}>+{rest}</Tag>}
+    </Space>
+  )
+}
+
+const STYLE_ITEM_EXTRA_HIGHLIGHT_KEYS = ["quantity_unit", "regular_process_text", "special_process_text"]
+const STYLE_ITEM_EXTRA_LABELS: Record<string, string> = {
+  quantity_unit: "数量单位",
+  regular_process_text: "常规工艺原文",
+  special_process_text: "特殊工艺原文",
+}
+
+function StyleItemExtraData({ extraData }: { extraData: Record<string, unknown> | null }) {
+  if (!extraData || Object.keys(extraData).length === 0) return null
+  const highlightEntries = STYLE_ITEM_EXTRA_HIGHLIGHT_KEYS
+    .filter(k => extraData[k] != null && extraData[k] !== "")
+    .map(k => [k, extraData[k]] as const)
+  const otherEntries = Object.entries(extraData).filter(
+    ([k, v]) => !STYLE_ITEM_EXTRA_HIGHLIGHT_KEYS.includes(k) && v != null && v !== "",
+  )
+
+  return (
+    <Collapse
+      size="small"
+      style={{ marginTop: 12 }}
+      items={[{
+        key: "extra",
+        label: "其他导入资料",
+        children: (
+          <div>
+            {highlightEntries.length > 0 && (
+              <Descriptions size="small" column={1} bordered style={{ marginBottom: otherEntries.length > 0 ? 8 : 0 }}>
+                {highlightEntries.map(([k, v]) => (
+                  <Descriptions.Item key={k} label={STYLE_ITEM_EXTRA_LABELS[k] ?? k}>
+                    {String(v)}
+                  </Descriptions.Item>
+                ))}
+              </Descriptions>
+            )}
+            {otherEntries.length > 0 && (
+              <pre style={{
+                background: "#f5f5f5", borderRadius: 4, padding: "6px 10px",
+                fontSize: 11, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all",
+              }}>
+                {JSON.stringify(Object.fromEntries(otherEntries), null, 2)}
+              </pre>
+            )}
+          </div>
+        ),
+      }]}
+    />
+  )
+}
+
+interface StyleItemDrawerProps {
+  inquiryId: string
+  item: InquiryStyleItem | null   // null = 新增模式
+  open: boolean
+  canEdit: boolean
+  onClose: () => void
+  onChanged: () => void
+}
+
+function StyleItemDrawer({ inquiryId, item, open, canEdit, onClose, onChanged }: StyleItemDrawerProps) {
+  const [form] = Form.useForm()
+  const [msgApi, ctx] = message.useMessage()
+  const [currentItem, setCurrentItem] = useState<InquiryStyleItem | null>(item)
+  const [newProcessTag, setNewProcessTag] = useState("")
+  const [newProcessSpecial, setNewProcessSpecial] = useState(false)
+  const [newSizeCode, setNewSizeCode] = useState("")
+  const [newSizeSpecial, setNewSizeSpecial] = useState(false)
+  const isCreate = item === null
+
+  React.useEffect(() => {
+    if (!open) return
+    setCurrentItem(item)
+    form.setFieldsValue({
+      product_name: item?.product_name ?? "",
+      style_no: item?.style_no ?? "",
+      product_category: item?.product_category ?? "",
+      series_name: item?.series_name ?? "",
+      quantity: item?.quantity ?? undefined,
+      size_range: item?.size_range ?? "",
+      quote_prepared_by: item?.quote_prepared_by ?? "",
+      process_description: item?.process_description ?? "",
+      remark: item?.remark ?? "",
+    })
+    setNewProcessTag(""); setNewProcessSpecial(false)
+    setNewSizeCode(""); setNewSizeSpecial(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, item])
+
+  const refreshCurrentItem = async (itemId: string) => {
+    const fresh = await fetchInquiryStyleItem(itemId)
+    setCurrentItem(fresh)
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: (values: Record<string, unknown>) =>
+      isCreate
+        ? createInquiryStyleItem(inquiryId, values as never)
+        : updateInquiryStyleItem(currentItem!.id, values as never),
+    onSuccess: async saved => {
+      msgApi.success(isCreate ? "新增成功" : "保存成功")
+      onChanged()
+      if (isCreate) {
+        onClose()
+      } else {
+        setCurrentItem(saved)
+      }
+    },
+    onError: (e: unknown) => msgApi.error(apiErrorDetail(e, isCreate ? "新增失败" : "保存失败")),
+  })
+
+  const addProcessMutation = useMutation({
+    mutationFn: () => createInquiryStyleProcess(currentItem!.id, {
+      process_tag: newProcessTag.trim(), is_special: newProcessSpecial,
+    }),
+    onSuccess: async () => {
+      msgApi.success("已添加工艺标签")
+      setNewProcessTag(""); setNewProcessSpecial(false)
+      await refreshCurrentItem(currentItem!.id)
+      onChanged()
+    },
+    onError: (e: unknown) => msgApi.error(apiErrorDetail(e, "添加失败")),
+  })
+
+  const deleteProcessMutation = useMutation({
+    mutationFn: (processId: string) => deleteInquiryStyleProcess(currentItem!.id, processId),
+    onSuccess: async () => {
+      msgApi.success("已删除工艺标签")
+      await refreshCurrentItem(currentItem!.id)
+      onChanged()
+    },
+    onError: (e: unknown) => msgApi.error(apiErrorDetail(e, "删除失败")),
+  })
+
+  const addSizeMutation = useMutation({
+    mutationFn: () => createInquiryStyleSize(currentItem!.id, {
+      size_code: newSizeCode.trim(), is_special_size: newSizeSpecial,
+    }),
+    onSuccess: async () => {
+      msgApi.success("已添加尺码")
+      setNewSizeCode(""); setNewSizeSpecial(false)
+      await refreshCurrentItem(currentItem!.id)
+      onChanged()
+    },
+    onError: (e: unknown) => msgApi.error(apiErrorDetail(e, "添加失败")),
+  })
+
+  const deleteSizeMutation = useMutation({
+    mutationFn: (sizeId: string) => deleteInquiryStyleSize(currentItem!.id, sizeId),
+    onSuccess: async () => {
+      msgApi.success("已删除尺码")
+      await refreshCurrentItem(currentItem!.id)
+      onChanged()
+    },
+    onError: (e: unknown) => msgApi.error(apiErrorDetail(e, "删除失败")),
+  })
+
+  return (
+    <Drawer
+      title={isCreate ? "新增款式" : "编辑款式"}
+      open={open}
+      onClose={onClose}
+      width={560}
+      destroyOnClose
+      extra={canEdit && (
+        <Button type="primary" icon={<SaveOutlined />} loading={saveMutation.isPending} onClick={() => form.submit()}>
+          保存
+        </Button>
+      )}
+    >
+      {ctx}
+      <Form
+        form={form}
+        layout="vertical"
+        disabled={!canEdit}
+        onFinish={values => {
+          const payload = { ...values }
+          if (payload.quantity === undefined) payload.quantity = null
+          saveMutation.mutate(payload)
+        }}
+      >
+        <Form.Item
+          label="品名" name="product_name"
+          rules={[{ required: true, message: "品名不能为空" }]}
+        >
+          <Input placeholder="例如：男童泳裤" />
+        </Form.Item>
+        <Row gutter={12}>
+          <Col span={12}>
+            <Form.Item label="款号" name="style_no">
+              <Input placeholder="例如：A001" />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item label="产品品类" name="product_category">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item label="系列" name="series_name">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item label="数量" name="quantity">
+              <InputNumber style={{ width: "100%" }} min={0} />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item label="报价单填报人" name="quote_prepared_by">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item label="原始尺码范围" name="size_range">
+              <Input placeholder="例如：XS-XL" />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Form.Item label="原始工艺说明" name="process_description">
+          <Input.TextArea rows={2} placeholder="例如：环保面料，UV50+，热压无缝，内置胸垫" />
+        </Form.Item>
+        <Form.Item label="备注" name="remark">
+          <Input.TextArea rows={2} />
+        </Form.Item>
+      </Form>
+
+      {!isCreate && currentItem && (
+        <>
+          <Typography.Title level={5} style={{ marginTop: 8 }}>工艺标签</Typography.Title>
+          <Space wrap style={{ marginBottom: 8 }}>
+            {currentItem.processes.length === 0 && <Text type="secondary">尚未添加工艺标签</Text>}
+            {currentItem.processes.map(p => (
+              <Tag
+                key={p.id}
+                color={p.is_special ? "purple" : "blue"}
+                closable={canEdit}
+                onClose={e => {
+                  e.preventDefault()
+                  Modal.confirm({
+                    title: "删除工艺标签",
+                    content: `确认删除工艺标签「${p.process_tag}」？`,
+                    okText: "确认删除", okButtonProps: { danger: true }, cancelText: "取消",
+                    onOk: () => deleteProcessMutation.mutate(p.id),
+                  })
+                }}
+              >
+                {p.process_tag}（{p.is_special ? "特殊工艺" : "常规工艺"}）
+              </Tag>
+            ))}
+          </Space>
+          {canEdit && (
+            <Space style={{ marginBottom: 16 }}>
+              <Input
+                placeholder="工艺标签，如 UV50+"
+                value={newProcessTag}
+                onChange={e => setNewProcessTag(e.target.value)}
+                style={{ width: 160 }}
+                onPressEnter={() => newProcessTag.trim() && addProcessMutation.mutate()}
+              />
+              <Checkbox checked={newProcessSpecial} onChange={e => setNewProcessSpecial(e.target.checked)}>
+                特殊工艺
+              </Checkbox>
+              <Button
+                size="small" icon={<PlusOutlined />}
+                disabled={!newProcessTag.trim()}
+                loading={addProcessMutation.isPending}
+                onClick={() => addProcessMutation.mutate()}
+              >
+                添加
+              </Button>
+            </Space>
+          )}
+
+          <Typography.Title level={5}>尺码信息</Typography.Title>
+          <Space wrap style={{ marginBottom: 8 }}>
+            {currentItem.sizes.length === 0 && <Text type="secondary">尚未添加标准化尺码</Text>}
+            {currentItem.sizes.map(s => (
+              <Tag
+                key={s.id}
+                color={s.is_special_size ? "gold" : "default"}
+                closable={canEdit}
+                onClose={e => {
+                  e.preventDefault()
+                  Modal.confirm({
+                    title: "删除尺码",
+                    content: `确认删除尺码「${s.size_code}」？`,
+                    okText: "确认删除", okButtonProps: { danger: true }, cancelText: "取消",
+                    onOk: () => deleteSizeMutation.mutate(s.id),
+                  })
+                }}
+              >
+                {s.size_code}{s.is_special_size ? "（特殊）" : ""}
+              </Tag>
+            ))}
+          </Space>
+          {canEdit && (
+            <Space style={{ marginBottom: 16 }}>
+              <Input
+                placeholder="尺码，如 M / XXL"
+                value={newSizeCode}
+                onChange={e => setNewSizeCode(e.target.value)}
+                style={{ width: 160 }}
+                onPressEnter={() => newSizeCode.trim() && addSizeMutation.mutate()}
+              />
+              <Checkbox checked={newSizeSpecial} onChange={e => setNewSizeSpecial(e.target.checked)}>
+                特殊尺码
+              </Checkbox>
+              <Button
+                size="small" icon={<PlusOutlined />}
+                disabled={!newSizeCode.trim()}
+                loading={addSizeMutation.isPending}
+                onClick={() => addSizeMutation.mutate()}
+              >
+                添加
+              </Button>
+            </Space>
+          )}
+
+          <StyleItemExtraData extraData={currentItem.extra_data} />
+        </>
+      )}
+    </Drawer>
+  )
+}
+
+function StyleItemsCard({
+  inquiryId, canEdit, highlightItemId,
+}: { inquiryId: string; canEdit: boolean; highlightItemId?: string }) {
+  const queryClient = useQueryClient()
+  const [msgApi, ctx] = message.useMessage()
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [editingItem, setEditingItem] = useState<InquiryStyleItem | null>(null)
+  const cardRef = React.useRef<HTMLDivElement>(null)
+
+  const { data: items = [], isFetching } = useQuery({
+    queryKey: ["inquiry-style-items", inquiryId],
+    queryFn: () => fetchInquiryStyleItems(inquiryId),
+    enabled: !!inquiryId,
+  })
+
+  // 从数据完整度页面"去补录"跳转过来时，带 item_id 自动滚动到对应区域
+  // 并高亮该行；不自动打开编辑抽屉，由用户自行点击编辑。
+  React.useEffect(() => {
+    if (!highlightItemId || items.length === 0) return
+    const exists = items.some(it => it.id === highlightItemId)
+    if (exists) {
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightItemId, items.length])
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ["inquiry-style-items", inquiryId] })
+    queryClient.invalidateQueries({ queryKey: ["inquiry", inquiryId] })
+    queryClient.invalidateQueries({ queryKey: ["inquiry-warnings", inquiryId] })
+    queryClient.invalidateQueries({ queryKey: ["operation-logs"] })
+    queryClient.invalidateQueries({ queryKey: ["quote-data-quality"] })
+    queryClient.invalidateQueries({ queryKey: ["customer-category-styles"] })
+    queryClient.invalidateQueries({ queryKey: ["process-analysis"] })
+    queryClient.invalidateQueries({ queryKey: ["size-analysis"] })
+    queryClient.invalidateQueries({ queryKey: ["quantity-analysis"] })
+    queryClient.invalidateQueries({ queryKey: ["quote-preparer-analysis"] })
+    queryClient.invalidateQueries({ queryKey: ["quote-analysis-overview"] })
+    queryClient.invalidateQueries({ queryKey: ["data-completion-tasks"] })
+    queryClient.invalidateQueries({ queryKey: ["active-completion-task"] })
+  }
+
+  const deleteMutation = useMutation({
+    mutationFn: (itemId: string) => deleteInquiryStyleItem(itemId),
+    onSuccess: () => { msgApi.success("已删除该款式明细"); invalidateAll() },
+    onError: (e: unknown) => msgApi.error(apiErrorDetail(e, "删除失败")),
+  })
+
+  const openCreate = () => { setEditingItem(null); setDrawerOpen(true) }
+  const openEdit = (it: InquiryStyleItem) => { setEditingItem(it); setDrawerOpen(true) }
+
+  const columns = [
+    {
+      title: "款号", dataIndex: "style_no", width: 90,
+      render: (v: string | null) => v || <Text type="secondary">未填写</Text>,
+    },
+    { title: "品名", dataIndex: "product_name", width: 140, ellipsis: true,
+      render: (v: string | null) => v || <Text type="secondary">未填写</Text> },
+    { title: "产品品类", dataIndex: "product_category", width: 90,
+      render: (v: string | null) => v || <Text type="secondary">—</Text> },
+    { title: "系列", dataIndex: "series_name", width: 100, ellipsis: true,
+      render: (v: string | null) => v || <Text type="secondary">—</Text> },
+    { title: "数量", dataIndex: "quantity", width: 70, align: "right" as const,
+      render: (v: number | null) => v ?? <Text type="secondary">—</Text> },
+    { title: "尺码范围", key: "size_range", width: 150,
+      render: (_: unknown, r: InquiryStyleItem) => <StyleSizeRangeCell item={r} /> },
+    { title: "报价单填报人", dataIndex: "quote_prepared_by", width: 100,
+      render: (v: string | null) => v || <Text type="secondary">—</Text> },
+    { title: "工艺标签", key: "processes", width: 160,
+      render: (_: unknown, r: InquiryStyleItem) => <StyleProcessCell item={r} /> },
+    { title: "尺码数量", key: "size_count", width: 75, align: "right" as const,
+      render: (_: unknown, r: InquiryStyleItem) => r.sizes.length || <Text type="secondary">—</Text> },
+    { title: "更新时间", dataIndex: "updated_at", width: 150,
+      render: (v: string) => new Date(v).toLocaleString("zh-CN") },
+    { title: "补录任务", key: "task", width: 90,
+      render: (_: unknown, r: InquiryStyleItem) => <StyleTaskCell itemId={r.id} /> },
+    {
+      title: "操作", key: "action", width: 110, fixed: "right" as const,
+      render: (_: unknown, r: InquiryStyleItem) => canEdit ? (
+        <Space size={4}>
+          <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(r)}>编辑</Button>
+          <Popconfirm
+            title="删除该款式明细？"
+            description="将同时删除其工艺标签和尺码记录，不可恢复"
+            okText="确认删除" okButtonProps={{ danger: true }} cancelText="取消"
+            onConfirm={() => deleteMutation.mutate(r.id)}
+          >
+            <Button size="small" type="link" danger icon={<DeleteOutlined />}>删除</Button>
+          </Popconfirm>
+        </Space>
+      ) : <Text type="secondary">—</Text>,
+    },
+  ]
+
+  // 注意：Card 的 loading 属性会用 Skeleton 整体替换 children（即卸载/重建
+  // 子树），如果把 Drawer 放在受 loading 控制的 children 里，每次列表查询
+  // 刷新（新增/编辑/删除任何明细后都会触发）都会把正在编辑中的 Drawer 卸载
+  // 重建，导致刚保存的工艺/尺码标签在 Drawer 里又"消失"。所以这里不使用
+  // Card.loading，改用 Table 自带的 loading，并把 Drawer 放在 Card 外部。
+  return (
+    <>
+      <div ref={cardRef}>
+        <Card
+          size="small"
+          title="款式明细 / 报价资料"
+          extra={canEdit && (
+            <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增款式</Button>
+          )}
+        >
+          {ctx}
+          <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 12 }}>
+            用于维护一个询单下各款式的款号、尺码、工艺、数量及报价资料。后续报价资料分析将以这些明细数据为基础。
+          </Text>
+          {items.length === 0 && !isFetching ? (
+            <div style={{ textAlign: "center", padding: "20px 0" }}>
+              <Text type="secondary">当前询单尚未添加款式明细</Text>
+              {canEdit && (
+                <div style={{ marginTop: 12 }}>
+                  <Button icon={<PlusOutlined />} onClick={openCreate}>新增款式</Button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <Table<InquiryStyleItem>
+              rowKey="id"
+              size="small"
+              loading={isFetching}
+              dataSource={items}
+              columns={columns}
+              pagination={false}
+              scroll={{ x: 1200 }}
+              rowClassName={r => r.id === highlightItemId ? "style-item-row-highlight" : ""}
+            />
+          )}
+        </Card>
+      </div>
+
+      <StyleItemDrawer
+        inquiryId={inquiryId}
+        item={editingItem}
+        open={drawerOpen}
+        canEdit={canEdit}
+        onClose={() => setDrawerOpen(false)}
+        onChanged={invalidateAll}
+      />
+
+      <style>{`
+        .style-item-row-highlight td { background-color: #fffbe6 !important; }
+      `}</style>
+    </>
+  )
+}
+
 // ── 主页面 ────────────────────────────────────────────────────────────────────
 
 export default function InquiryDetailPage() {
@@ -736,6 +1281,8 @@ export default function InquiryDetailPage() {
   const currentUser = useCurrentUser()
   const [editing, setEditing] = useState(false)
   const [msgApi, ctx] = message.useMessage()
+  const [searchParams] = useSearchParams()
+  const highlightItemId = searchParams.get("item_id") || undefined
 
   const canEdit     = currentUser.role !== "viewer"
   const canDelete   = currentUser.role === "admin"
@@ -747,6 +1294,19 @@ export default function InquiryDetailPage() {
     enabled: !!id,
   })
 
+  // 询单级字段（含 quote_status / order_status）编辑或删除后，除了走"analytics-*"
+  // 前缀的旧分析页面，还要顺带失效报价资料分析 Step 4-8 用到的独立 query key——
+  // 这些 key 不带 "analytics" 前缀，靠上面的 predicate 捞不到。
+  const invalidateReportAnalysisQueries = () => {
+    for (const key of [
+      "quote-data-quality", "customer-category-styles",
+      "process-analysis", "size-analysis", "quantity-analysis",
+      "quote-preparer-analysis", "quote-analysis-overview",
+    ]) {
+      queryClient.invalidateQueries({ queryKey: [key] })
+    }
+  }
+
   const { mutate: save, isPending: saving } = useMutation({
     mutationFn: (body: Partial<InquiryItem>) => updateInquiry(id!, body),
     onSuccess: updated => {
@@ -755,6 +1315,7 @@ export default function InquiryDetailPage() {
       queryClient.invalidateQueries({
         predicate: q => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("analytics"),
       })
+      invalidateReportAnalysisQueries()
       setEditing(false)
       msgApi.success("保存成功")
     },
@@ -768,6 +1329,7 @@ export default function InquiryDetailPage() {
       queryClient.invalidateQueries({
         predicate: q => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("analytics"),
       })
+      invalidateReportAnalysisQueries()
       msgApi.success("删除成功")
       setTimeout(() => navigate("/"), 800)
     },
@@ -962,6 +1524,11 @@ export default function InquiryDetailPage() {
         {/* 生产跟单 */}
         <Col span={24}>
           <ProductionCard inquiryId={id!} />
+        </Col>
+
+        {/* 款式明细 / 报价资料 */}
+        <Col span={24}>
+          <StyleItemsCard inquiryId={id!} canEdit={canEdit} highlightItemId={highlightItemId} />
         </Col>
 
         {/* 系统信息 */}

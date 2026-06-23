@@ -23,8 +23,14 @@ from app.schemas.inquiry import (
 from app.schemas.inquiry_item import (
     InquiryItemBase,
     InquiryItemCreate,
+    InquiryItemCreateRequest,
+    InquiryItemUpdate,
     InquiryItemRead,
     InquiryItemOut,
+    InquiryItemProcessCreate,
+    InquiryItemProcessRead,
+    InquiryItemSizeCreate,
+    InquiryItemSizeRead,
 )
 from app.schemas.import_batch import (
     ImportBatchBase,
@@ -47,7 +53,9 @@ __all__ = [
     "InquiryBase", "InquiryCreate", "InquiryRead",
     "InquiryListItem", "InquiryUpdate", "InquiryFilter",
     # InquiryItem
-    "InquiryItemBase", "InquiryItemCreate", "InquiryItemRead", "InquiryItemOut",
+    "InquiryItemBase", "InquiryItemCreate", "InquiryItemCreateRequest", "InquiryItemUpdate", "InquiryItemRead", "InquiryItemOut",
+    "InquiryItemProcessCreate", "InquiryItemProcessRead",
+    "InquiryItemSizeCreate", "InquiryItemSizeRead",
     # ImportBatch
     "ImportBatchBase", "ImportBatchCreate", "ImportBatchRead", "ImportBatchOut",
     "PreviewRow", "ImportPreviewResponse",

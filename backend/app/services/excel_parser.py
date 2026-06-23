@@ -10,8 +10,13 @@
   3. 自动识别表头行（扫描前 HEADER_SCAN_ROWS 行，优先找含"询单号"的行）
   4. 构建列映射（列索引 → 字段名 / 中文表头）
   5. 逐行解析：类型转换 + 必填校验 + 派生 inquiry_year/inquiry_month
-  6. 检测文件内部重复 inquiry_no，重复行标记为 duplicate
-  7. 返回 ParseResult（每行 status = valid | duplicate | failed）
+  6. 返回 ParseResult（每行 status = valid | failed）
+
+注意：本模块不做"同一询单号/同一款式重复"判断——那需要知道数据库里
+已有什么、以及同批次内前面的行是否真正写库成功，纯解析层拿不到这些信息。
+重复判断统一在 services/import_service.py 的 _classify_existing /
+_write_valid_row 中按"实际写库结果"实时进行，避免"分类即占用"导致
+前一行写库失败时，后面真正应该成功的同款行被错误地当作 duplicate_item。
 """
 
 from __future__ import annotations
@@ -36,6 +41,7 @@ from app.core.field_mapping import (
     FORMAL_SKIP,
     FORMAL_TEMPLATE_FIELD_MAPPING,
     INT_FIELDS,
+    ITEM_FIELD_MAPPING,
     PCT_FIELDS,
     REQUIRED_FIELDS,
 )
@@ -54,10 +60,9 @@ class ParsedRow:
 
     row_number: int
     inquiry_no: str | None
-    # valid   = 本地校验通过（仍需 DB 判断 new/existing）
-    # duplicate = 同文件内 inquiry_no 重复
-    # failed  = 必填字段缺失或类型转换失败
-    status: Literal["valid", "duplicate", "failed"]
+    # valid  = 本地校验通过（仍需 DB 层判断 new/existing/重复，见模块顶部说明）
+    # failed = 必填字段缺失或类型转换失败
+    status: Literal["valid", "failed"]
     raw_data: dict[str, Any]     # {中文表头: 原始值}
     parsed_data: dict[str, Any]  # {字段名: 转换后值}
     errors: list[str]
@@ -91,10 +96,6 @@ class ParseResult:
     @property
     def valid_count(self) -> int:
         return sum(1 for r in self.rows if r.status == "valid")
-
-    @property
-    def duplicate_count(self) -> int:
-        return sum(1 for r in self.rows if r.status == "duplicate")
 
     @property
     def failed_count(self) -> int:
@@ -502,6 +503,35 @@ def _derive_year_month(d: date | None) -> tuple[int | None, str | None]:
     return d.year, MONTH_ABBR[d.month - 1]
 
 
+def build_item_identity_key(row_data: dict[str, Any]) -> tuple | None:
+    """
+    款式身份键：用于判断"同一询单号下是否出现了相同款式"。
+
+    优先级：
+      1. inquiry_no + style_no（两者都非空）
+      2. inquiry_no + product_name + series_name（三者都非空）
+      3. 无法构建可靠键时返回 None —— 调用方不应把 None 当作"重复"或
+         "新款"，而应单独标记为"无法判断"，等待人工确认。
+
+    纯函数，不访问数据库；import_service 在此基础上叠加 DB 层面的
+    新旧询单/新旧款式判断。
+    """
+    inquiry_no = str(row_data.get("inquiry_no") or "").strip()
+    if not inquiry_no:
+        return None
+
+    style_no = str(row_data.get("style_no") or "").strip()
+    if style_no:
+        return (inquiry_no, "style_no", style_no)
+
+    product_name = str(row_data.get("product_name") or "").strip()
+    series_name = str(row_data.get("series_name") or "").strip()
+    if product_name and series_name:
+        return (inquiry_no, "name", product_name, series_name)
+
+    return None
+
+
 def _parse_single_row(
     row_number: int,
     row_cells: tuple,
@@ -578,7 +608,7 @@ def _parse_single_row(
         if month:
             parsed_data["inquiry_month"] = month
 
-    status: Literal["valid", "duplicate", "failed"] = "failed" if errors else "valid"
+    status: Literal["valid", "failed"] = "failed" if errors else "valid"
     inquiry_no = str(parsed_data.get("inquiry_no", "")).strip() or None
 
     return ParsedRow(
@@ -607,9 +637,9 @@ def parse_excel_file(
     （调用方负责校验权限，此处不做角色检查）。
 
     返回 ParseResult，每行 status：
-      valid     — 通过本地校验，仍需 DB 查询判断 new/existing
-      duplicate — 同文件内 inquiry_no 重复（第二次出现开始）
-      failed    — 必填字段缺失或类型转换失败
+      valid  — 通过本地校验，是否新询单/已有询单/重复款式由 import_service
+               在写库阶段按实际数据库状态实时判断（见模块顶部说明）
+      failed — 必填字段缺失或类型转换失败
 
     Raises:
       ValueError  — 无法识别任何列头
@@ -621,7 +651,12 @@ def parse_excel_file(
 
     # ── 检测模板类型 ────────────────────────────────────────────────────────────
     is_formal = _is_formal_quotation_template(ws)
-    active_mapping = FORMAL_TEMPLATE_FIELD_MAPPING if is_formal else FIELD_MAPPING
+    # 询单级映射叠加款式级映射（style_no / 工艺 / 尺码等），同一行 Excel
+    # 既要解析询单级字段也要解析款式级字段，写库时再由 import_service 拆分。
+    active_mapping = {
+        **(FORMAL_TEMPLATE_FIELD_MAPPING if is_formal else FIELD_MAPPING),
+        **ITEM_FIELD_MAPPING,
+    }
     active_required = FORMAL_REQUIRED_FIELDS if is_formal else list(REQUIRED_FIELDS)
     active_identity = [] if is_formal else list(CUSTOMER_IDENTITY_FIELDS)
     row_extra_coerce: dict[str, Any] | None = (
@@ -709,16 +744,6 @@ def parse_excel_file(
             detected = detect_product_category(row.parsed_data.get("product_name"))
             if detected:
                 row.parsed_data["product_category"] = detected
-
-    # 检测文件内部重复 inquiry_no（第一次出现保留 valid，之后标记 duplicate）
-    seen: set[str] = set()
-    for row in rows:
-        if row.status == "valid" and row.inquiry_no:
-            if row.inquiry_no in seen:
-                row.status = "duplicate"
-                row.errors.append(f"文件内询单号重复：{row.inquiry_no}")
-            else:
-                seen.add(row.inquiry_no)
 
     return ParseResult(
         file_name=file_name,

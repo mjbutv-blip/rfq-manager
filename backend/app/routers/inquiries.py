@@ -17,6 +17,7 @@ from app.core.permissions import (
 )
 from app.database import get_db
 from app.schemas.inquiry import InquiryFilter, InquiryListItem, InquiryUpdate
+from app.schemas.inquiry_item import InquiryItemCreateRequest, InquiryItemRead
 from app.services.export_service import build_inquiry_excel
 from app.services.operation_log_service import (
     inquiry_delete_snapshot,
@@ -185,7 +186,7 @@ async def update_inquiry(inquiry_id: uuid.UUID, body: InquiryUpdate, db: DbDep, 
 async def get_inquiry_warnings(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
     """获取单条询单的所有预警（含已处理）。"""
     from sqlalchemy import case, select
-    from app.models import InquiryWarning
+    from app.models import Inquiry, InquiryWarning
     from app.schemas.inquiry_warning import InquiryWarningOut
     inq = await db.get(Inquiry, inquiry_id)
     if not inq:
@@ -202,6 +203,70 @@ async def get_inquiry_warnings(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
     ).order_by(InquiryWarning.is_resolved, level_order)
     rows = list((await db.execute(q)).scalars().all())
     return [InquiryWarningOut.model_validate(r) for r in rows]
+
+
+@router.get("/{inquiry_id}/items", response_model=list[InquiryItemRead])
+async def list_inquiry_items_route(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
+    """获取某询单下的全部款式明细（含工艺标签和尺码）。"""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models import Inquiry
+    from app.models.inquiry_item import InquiryItem
+
+    inq = await db.get(Inquiry, inquiry_id)
+    if not inq:
+        raise HTTPException(status_code=404, detail="询单不存在")
+    if not can_view_inquiry(inq, user):
+        raise HTTPException(status_code=403, detail="无权访问该询单")
+
+    q = (
+        select(InquiryItem)
+        .where(InquiryItem.inquiry_id == inquiry_id)
+        .options(selectinload(InquiryItem.processes), selectinload(InquiryItem.sizes))
+        .order_by(InquiryItem.created_at)
+    )
+    rows = list((await db.execute(q)).scalars().all())
+    return rows
+
+
+@router.post(
+    "/{inquiry_id}/items", response_model=InquiryItemRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_inquiry_item_route(
+    inquiry_id: uuid.UUID, body: InquiryItemCreateRequest, db: DbDep, user: UserDep, request: Request,
+):
+    """在某询单下手动新增一条款式明细。inquiry_id 固定来自路径，不允许客户端改动。"""
+    from app.models import Inquiry
+    from app.routers.inquiry_items import _load_item, _rescan_inquiry_warnings
+
+    inq = await db.get(Inquiry, inquiry_id)
+    if not inq:
+        raise HTTPException(status_code=404, detail="询单不存在")
+    if not can_edit_inquiry(inq, user):
+        raise HTTPException(status_code=403, detail="无权编辑该询单")
+
+    item = await crud.create_inquiry_item(db, inquiry_id, inq.inquiry_no, body.model_dump())
+    await db.commit()
+
+    fresh = await _load_item(db, item.id)
+    await safe_log(
+        **log_kwargs_from_user(user),
+        action_type="inquiry_item_create",
+        target_type="inquiry_item",
+        target_id=str(item.id),
+        inquiry_id=inquiry_id,
+        inquiry_no=inq.inquiry_no,
+        description="新增询单款式明细",
+        after_data={
+            "style_no": fresh.style_no, "product_name": fresh.product_name,
+            "product_category": fresh.product_category, "series_name": fresh.series_name,
+            "quantity": fresh.quantity,
+        },
+        request=request,
+    )
+    await _rescan_inquiry_warnings(db, inq)
+    return fresh
 
 
 @router.delete("/{inquiry_id}", status_code=status.HTTP_204_NO_CONTENT)

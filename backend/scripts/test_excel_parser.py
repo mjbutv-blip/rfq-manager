@@ -74,7 +74,9 @@ def _get_test_excel_bytes() -> bytes:
                "赵磊", "内衣", "女款内衣", "内衣系列",
                150, date(2026, 2, 1), "", 0, "", ""])
 
-    # 重复 inquiry_no → duplicate
+    # 重复 inquiry_no + 相同款式（无款号，退化为 product_name+series_name 相同）
+    # 本身在纯解析层不算重复——是否真的重复由 import_service 在写库阶段
+    # 按数据库实际状态判断，这里应仍然是 valid。
     ws.append(["BT2026-001", "C001", "泰格体育（重）", "美国", "A组",
                "张伟", "泳装", "男童泳裤", "SS2026泳装系列",
                100, date(2026, 1, 10), "", 0, "", "重复行"])
@@ -116,8 +118,7 @@ def run(file_path: str | None, verbose: bool) -> None:
     print(f"  文件名     : {result.file_name}")
     print(f"  Sheet      : {result.sheet_name}")
     print(f"  总行数     : {result.total_rows}")
-    print(f"  valid      : {result.valid_count}  （通过本地校验，待 DB 判断 new/existing）")
-    print(f"  duplicate  : {result.duplicate_count}  （文件内询单号重复）")
+    print(f"  valid      : {result.valid_count}  （通过本地校验，new/existing/重复由写库阶段判断）")
     print(f"  failed     : {result.failed_count}  （必填缺失或格式错误）")
 
     # ── 列映射 ───────────────────────────────────────────────────────────────
@@ -140,9 +141,8 @@ def run(file_path: str | None, verbose: bool) -> None:
     header("逐行解析结果")
 
     STATUS_COLOR = {
-        "valid":     GREEN,
-        "duplicate": YELLOW,
-        "failed":    RED,
+        "valid":  GREEN,
+        "failed": RED,
     }
 
     for row in result.rows:
@@ -178,13 +178,14 @@ def run(file_path: str | None, verbose: bool) -> None:
          "有 inquiry_date 的行均派生出 inquiry_month（Jan/Feb 等）"),
     ]
 
-    # 仅在内置测试时检查已知的 duplicate / failed 行
+    # 仅在内置测试时检查已知的 failed 行；"重复 inquiry_no" 那一行在纯解析层
+    # 应仍是 valid（重复判断已下放到写库阶段，见模块顶部说明）。
     if not file_path:
         assertions += [
-            (result.duplicate_count >= 1,
-             "至少 1 行 duplicate（inquiry_no 重复）"),
             (result.failed_count >= 1,
              "至少 1 行 failed（必填字段缺失）"),
+            (sum(1 for r in result.rows if r.inquiry_no == "BT2026-001" and r.status == "valid") == 2,
+             "重复 inquiry_no 的两行在解析层都是 valid（不再由解析器判重）"),
         ]
 
     all_ok = True

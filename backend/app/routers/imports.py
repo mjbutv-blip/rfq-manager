@@ -68,10 +68,12 @@ async def preview(
             after_data={
                 "file_name": result.file_name,
                 "total_rows": result.total_rows,
-                "new_rows": result.new_rows,
-                "existing_rows": result.existing_rows,
+                "new_inquiry_rows": result.new_inquiry_rows,
+                "existing_inquiry_new_item_rows": result.existing_inquiry_new_item_rows,
+                "duplicate_item_rows": result.duplicate_item_rows,
+                "uncertain_existing_item_rows": result.uncertain_existing_item_rows,
                 "failed_rows": result.failed_rows,
-                "duplicate_rows": result.duplicate_rows,
+                "importable_rows": result.importable_rows,
             },
             request=request,
         )
@@ -122,9 +124,15 @@ async def confirm(
         description="确认导入询单",
         after_data={
             "file_name": batch.file_name if batch else file.filename,
-            "success_count": batch.success_count if batch else None,
-            "fail_count": batch.fail_count if batch else None,
-            "row_count": batch.row_count if batch else None,
+            "success_rows": batch.success_rows if batch else None,
+            "failed_rows": batch.failed_rows if batch else None,
+            "new_rows": batch.new_rows if batch else None,
+            "existing_rows": batch.existing_rows if batch else None,
+            "duplicate_rows": batch.duplicate_rows if batch else None,
+            "uncertain_rows": batch.uncertain_rows if batch else None,
+            "validation_failed_rows": batch.validation_failed_rows if batch else None,
+            "write_failed_rows": batch.write_failed_rows if batch else None,
+            "total_rows": batch.total_rows if batch else None,
         },
         request=request,
     )
@@ -168,7 +176,10 @@ async def confirm_rows(
         after_data={
             "file_name": body.file_name,
             "row_count": len(body.rows),
-            "success_count": batch.success_count if batch else None,
+            "success_rows": batch.success_rows if batch else None,
+            "failed_rows": batch.failed_rows if batch else None,
+            "validation_failed_rows": batch.validation_failed_rows if batch else None,
+            "write_failed_rows": batch.write_failed_rows if batch else None,
         },
         request=request,
     )
@@ -219,7 +230,7 @@ async def get_batch_rows(
     batch_id: uuid.UUID,
     db: DbDep,
     user: UserDep,
-    status: str | None = Query(default=None, description="按状态筛选：new / exists / duplicate / error"),
+    status: str | None = Query(default=None, description="按状态筛选：new / existing_inquiry_new_item / duplicate_item / existing_inquiry_item_uncertain / error"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ):

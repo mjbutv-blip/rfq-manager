@@ -10,7 +10,7 @@ class ImportRowBase(BaseModel):
     batch_id: uuid.UUID
     row_number: int | None = None
     inquiry_no: str | None = None
-    # new / exists / duplicate / error / imported / skipped
+    # new / exists / duplicate_item / error / imported / skipped
     status: str
     raw_data_json: dict[str, Any] | None = None
     parsed_data_json: dict[str, Any] | None = None
