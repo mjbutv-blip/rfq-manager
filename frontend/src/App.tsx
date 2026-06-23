@@ -126,7 +126,24 @@ function AppLayout() {
     ? "dashboard"
     : "inquiries"
 
-  type MenuItem = { key: string; icon: React.ReactNode; label: React.ReactNode; onClick: () => void }
+  type MenuItem = {
+    key: string
+    icon?: React.ReactNode
+    label: React.ReactNode
+    onClick?: () => void
+    children?: MenuItem[]
+  }
+
+  // 报价资料分析系列页面（Step 4-10）收进一个下拉分组，避免顶部导航平铺过多项目
+  const reportAnalysisChildren: MenuItem[] = [
+    { key: "quote-analysis-overview", label: "分析总览", onClick: () => navigate("/quote-analysis-overview") },
+    { key: "quote-data-quality", label: "资料完整度", onClick: () => navigate("/quote-data-quality") },
+    { key: "customer-category-styles", label: "客户品类款式分析", onClick: () => navigate("/customer-category-styles") },
+    { key: "process-analysis", label: "产品工艺分析", onClick: () => navigate("/process-analysis") },
+    { key: "size-analysis", label: "尺码范围分析", onClick: () => navigate("/size-analysis") },
+    { key: "quantity-analysis", label: "报价数量分析", onClick: () => navigate("/quantity-analysis") },
+    { key: "quote-preparer-analysis", label: "报价填报人分析", onClick: () => navigate("/quote-preparer-analysis") },
+  ]
 
   const menuItems: (MenuItem | null)[] = [
     { key: "dashboard", icon: <DashboardOutlined />, label: "数据总览", onClick: () => navigate("/dashboard") },
@@ -135,13 +152,7 @@ function AppLayout() {
       ? { key: "import", icon: <UploadOutlined />, label: "导入询单", onClick: () => navigate("/import") }
       : null,
     { key: "analytics", icon: <BarChartOutlined />, label: "数据分析", onClick: () => navigate("/analytics") },
-    { key: "quote-analysis-overview", icon: <FileSearchOutlined />, label: "报价资料分析总览", onClick: () => navigate("/quote-analysis-overview") },
-    { key: "quote-data-quality", icon: <FileSearchOutlined />, label: "报价资料完整度", onClick: () => navigate("/quote-data-quality") },
-    { key: "customer-category-styles", icon: <BarChartOutlined />, label: "客户品类款式分析", onClick: () => navigate("/customer-category-styles") },
-    { key: "process-analysis", icon: <BarChartOutlined />, label: "产品工艺分析", onClick: () => navigate("/process-analysis") },
-    { key: "size-analysis", icon: <BarChartOutlined />, label: "尺码范围分析", onClick: () => navigate("/size-analysis") },
-    { key: "quantity-analysis", icon: <BarChartOutlined />, label: "报价数量分析", onClick: () => navigate("/quantity-analysis") },
-    { key: "quote-preparer-analysis", icon: <BarChartOutlined />, label: "报价填报人分析", onClick: () => navigate("/quote-preparer-analysis") },
+    { key: "report-analysis-group", icon: <FileSearchOutlined />, label: "报价资料分析", children: reportAnalysisChildren },
     canViewWarnings
       ? {
           key: "warnings",
