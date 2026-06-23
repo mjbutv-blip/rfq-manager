@@ -10,6 +10,7 @@ from app.database import AsyncSessionLocal
 from app.routers import analytics, imports, inquiries, inquiry_items, warnings
 from app.routers import transfers, operation_logs, customers, factories, users, samples, productions, auth, backups
 from app.routers import data_completion_tasks
+from app.routers import admin_backfill_category
 
 logger = logging.getLogger("rfq")
 
@@ -70,6 +71,7 @@ app.include_router(productions.router,    prefix="/api/v1")
 app.include_router(auth.router,           prefix="/api/v1")
 app.include_router(backups.router,        prefix="/api/v1")
 app.include_router(data_completion_tasks.router, prefix="/api/v1")
+app.include_router(admin_backfill_category.router, prefix="/api/v1")
 
 
 # ── 系统健康检查 ──────────────────────────────────────────────────────────────

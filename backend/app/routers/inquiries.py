@@ -25,6 +25,7 @@ from app.services.operation_log_service import (
     log_kwargs_from_user,
     safe_log,
 )
+from app.services.product_category_inference_service import infer_product_category
 
 router = APIRouter(prefix="/inquiries", tags=["inquiries"])
 
@@ -246,7 +247,13 @@ async def create_inquiry_item_route(
     if not can_edit_inquiry(inq, user):
         raise HTTPException(status_code=403, detail="无权编辑该询单")
 
-    item = await crud.create_inquiry_item(db, inquiry_id, inq.inquiry_no, body.model_dump())
+    payload = body.model_dump()
+    if not (payload.get("product_category") or "").strip():
+        inferred = infer_product_category(payload.get("product_name"))
+        if inferred:
+            payload["product_category"] = inferred
+
+    item = await crud.create_inquiry_item(db, inquiry_id, inq.inquiry_no, payload)
     await db.commit()
 
     fresh = await _load_item(db, item.id)

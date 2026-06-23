@@ -35,6 +35,7 @@ from app.schemas.inquiry_item import (
 )
 from app.services.data_completion_task_service import OPEN_STATUSES, auto_complete_check, now_utc
 from app.services.operation_log_service import log_kwargs_from_user, safe_log, snapshot
+from app.services.product_category_inference_service import infer_product_category
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 router = APIRouter(prefix="/inquiry-items", tags=["inquiry-items"])
@@ -169,8 +170,20 @@ async def update_item(
     payload.pop("inquiry_id", None)
 
     before = snapshot(item, _ITEM_SNAPSHOT_FIELDS)
+    # 推断条件基于"本次编辑前"的状态：品类本来就是空的、且用户本次请求没有
+    # 显式带上 product_category 字段——哪怕用户本次显式把品类清空（传空字符串），
+    # 也尊重这个显式动作，不会在同一次请求里又被自动填回去。
+    had_no_category_before = not (before.get("product_category") or "").strip()
+    user_touched_category = "product_category" in payload
+
     for k, v in payload.items():
         setattr(item, k, v)
+
+    if had_no_category_before and not user_touched_category:
+        inferred = infer_product_category(item.product_name)
+        if inferred:
+            item.product_category = inferred
+
     await db.commit()
 
     fresh = await _load_item(db, item_id)
