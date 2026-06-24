@@ -82,6 +82,14 @@ interface EditFormProps {
 function EditForm({ inquiry, onSave, onCancel, saving }: EditFormProps) {
   const [form] = Form.useForm()
 
+  const { data: factoryList } = useQuery({
+    queryKey: ["factories-for-quote-select"],
+    queryFn: () => fetchFactories({ page_size: 200 }),
+  })
+  const factoryOptions = (factoryList?.items ?? []).map(f => ({
+    label: f.factory_short_name || f.factory_name, value: f.id,
+  }))
+
   return (
     <Form
       form={form}
@@ -97,6 +105,7 @@ function EditForm({ inquiry, onSave, onCancel, saving }: EditFormProps) {
         trade_amount:    inquiry.trade_amount,
         order_date:      inquiry.order_date ? dayjs(inquiry.order_date) : null,
         remark:          inquiry.remark,
+        applicable_factory_id: inquiry.applicable_factory_id,
       }}
       onFinish={values => {
         const payload = { ...values }
@@ -149,6 +158,11 @@ function EditForm({ inquiry, onSave, onCancel, saving }: EditFormProps) {
         <Col span={6}>
           <Form.Item label="下单日期" name="order_date">
             <DatePicker style={{ width: "100%" }} />
+          </Form.Item>
+        </Col>
+        <Col span={6}>
+          <Form.Item label="适用工厂" name="applicable_factory_id">
+            <Select allowClear showSearch optionFilterProp="label" placeholder="未选择" options={factoryOptions} />
           </Form.Item>
         </Col>
         <Col span={18}>
@@ -626,6 +640,10 @@ function FactoryQuoteCard({ inquiryId, canEdit }: {
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["factory-quotes", inquiryId] })
+    queryClient.invalidateQueries({ queryKey: ["inquiry-journey", inquiryId] })
+    queryClient.invalidateQueries({ queryKey: ["factories-for-quote-select"] })
+    queryClient.invalidateQueries({ queryKey: ["factory"] })
+    queryClient.invalidateQueries({ queryKey: ["factory-qr"] })
     queryClient.invalidateQueries({ queryKey: ["operation-logs"] })
   }
 
@@ -1324,6 +1342,7 @@ function StyleItemsCard({
     queryClient.invalidateQueries({ queryKey: ["data-completion-tasks"] })
     queryClient.invalidateQueries({ queryKey: ["data-completion-dashboard"] })
     queryClient.invalidateQueries({ queryKey: ["active-completion-task"] })
+    queryClient.invalidateQueries({ queryKey: ["inquiry-journey", inquiryId] })
   }
 
   const deleteMutation = useMutation({
@@ -1471,6 +1490,7 @@ export default function InquiryDetailPage() {
     ]) {
       queryClient.invalidateQueries({ queryKey: [key] })
     }
+    queryClient.invalidateQueries({ queryKey: ["inquiry-journey", id] })
   }
 
   const { mutate: save, isPending: saving } = useMutation({
@@ -1544,6 +1564,7 @@ export default function InquiryDetailPage() {
           </Tag>
         )}
         <div style={{ flex: 1 }} />
+        <Button onClick={() => navigate(`/inquiry/${id}/journey`)}>查看来龙去脉表</Button>
         {!editing && canEdit && (
           <Button icon={<EditOutlined />} onClick={() => setEditing(true)}>编辑</Button>
         )}
@@ -1678,7 +1699,7 @@ export default function InquiryDetailPage() {
         </Col>
 
         {/* 工厂报价录入 */}
-        <Col span={24}>
+        <Col span={24} id="factory-quote">
           <FactoryQuoteCard inquiryId={id!} canEdit={canEdit} />
         </Col>
 

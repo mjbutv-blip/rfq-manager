@@ -56,6 +56,9 @@ class Inquiry(Base):
     remark: Mapped[str | None] = mapped_column(Text)
     import_batch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
 
+    # "适用工厂"——单个订单来龙去脉表用，业务人员手动指定，不参与任何报价比较的自动改写
+    applicable_factory_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

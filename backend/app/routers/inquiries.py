@@ -183,6 +183,103 @@ async def update_inquiry(inquiry_id: uuid.UUID, body: InquiryUpdate, db: DbDep, 
     return updated
 
 
+# ── 单个订单的来龙去脉表（询单报价详情表）──────────────────────────────────────
+#
+# 只读汇总，唯一数据源是 factory_quote_records（按轮次填报的工厂报价卡片）。
+# 这里不存储、不复制任何报价数据。
+
+@router.get("/{inquiry_id}/journey")
+async def get_inquiry_journey(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
+    from sqlalchemy import select
+    from app.models import Customer, Inquiry
+    from app.models.factory import Factory
+    from app.models.factory_quote_record import FactoryQuoteRecord
+    from app.models.inquiry_item import InquiryItem
+    from app.services.journey_service import build_rounds, find_applicable_factory_quote
+
+    inq = await db.get(Inquiry, inquiry_id)
+    if not inq:
+        raise HTTPException(status_code=404, detail="询单不存在")
+    if not can_view_inquiry(inq, user):
+        raise HTTPException(status_code=403, detail="无权访问该询单")
+
+    customer = None
+    if inq.customer_code:
+        customer = (await db.execute(
+            select(Customer).where(Customer.customer_code == inq.customer_code)
+        )).scalars().first()
+
+    items = (await db.execute(
+        select(InquiryItem).where(InquiryItem.inquiry_id == inquiry_id).order_by(InquiryItem.created_at.asc())
+    )).scalars().all()
+
+    all_quotes = (await db.execute(
+        select(FactoryQuoteRecord).where(
+            FactoryQuoteRecord.inquiry_id == inquiry_id,
+            FactoryQuoteRecord.quote_round.isnot(None),
+        )
+    )).scalars().all()
+
+    rounds = build_rounds(list(all_quotes))
+
+    applicable_factory = None
+    if inq.applicable_factory_id:
+        factory = await db.get(Factory, inq.applicable_factory_id)
+        if factory:
+            quote = find_applicable_factory_quote(list(all_quotes), factory.id)
+            applicable_factory = {
+                "factory_id": str(factory.id),
+                "factory_name": factory.factory_short_name or factory.factory_name,
+                "factory_price": float(quote.factory_price) if quote and quote.factory_price is not None else None,
+                "currency": quote.currency if quote else None,
+                "price_unit": quote.price_unit if quote else None,
+                "quote_round": quote.quote_round if quote else None,
+            }
+
+    if len(items) == 1:
+        style_display = items[0].product_name
+    elif len(items) > 1:
+        style_display = "多款式"
+    else:
+        style_display = None
+
+    return {
+        "inquiry": {
+            "id": str(inq.id),
+            "inquiry_no": inq.inquiry_no,
+            "customer_code": inq.customer_code,
+            "customer_order_no": inq.customer_order_no,
+            "customer_name": inq.customer_name,
+            "customer_short_name": inq.customer_short_name,
+            "product_name": style_display,
+            "style_count": len(items),
+            "series_name": inq.series_name,
+            "group_name": inq.group_name,
+            "responsible_sales": inq.responsible_sales,
+            "inquiry_date": inq.inquiry_date.isoformat() if inq.inquiry_date else None,
+            "quote_status": inq.quote_status,
+            "order_status": inq.order_status,
+            "order_quantity": inq.order_quantity,
+            "quantity": inq.quantity,
+            "final_quote": float(inq.final_quote) if inq.final_quote is not None else None,
+            "factory_price": float(inq.factory_price) if inq.factory_price is not None else None,
+            "gross_profit_rate": float(inq.gross_profit_rate) if inq.gross_profit_rate is not None else None,
+            "order_unit_price": float(inq.order_unit_price) if inq.order_unit_price is not None else None,
+            "trade_amount": float(inq.trade_amount) if inq.trade_amount is not None else None,
+            "order_date": inq.order_date.isoformat() if inq.order_date else None,
+            "remark": inq.remark,
+        },
+        "customer": {
+            "customer_code": customer.customer_code,
+            "customer_name": customer.customer_name,
+            "customer_short_name": customer.customer_short_name,
+        } if customer else None,
+        "applicable_factory": applicable_factory,
+        "rounds": rounds,
+        "can_edit": can_edit_inquiry(inq, user),
+    }
+
+
 @router.get("/{inquiry_id}/warnings")
 async def get_inquiry_warnings(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
     """获取单条询单的所有预警（含已处理）。"""

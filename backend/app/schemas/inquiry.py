@@ -40,6 +40,7 @@ class InquiryBase(BaseModel):
     inquiry_year: int | None = None
     inquiry_month: str | None = None        # "Jan" / "Feb" … 由 inquiry_date 派生
     remark: str | None = None
+    applicable_factory_id: uuid.UUID | None = None
 
 
 class InquiryCreate(InquiryBase):
@@ -92,6 +93,7 @@ class InquiryListItem(BaseModel):
     inquiry_year: int | None = None
     inquiry_month: str | None = None
     remark: str | None = None
+    applicable_factory_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -134,6 +136,7 @@ class InquiryUpdate(BaseModel):
     trade_amount: float | None = None
     order_date: date | None = None
     remark: str | None = None
+    applicable_factory_id: uuid.UUID | None = None
 
 
 class InquiryFilter(BaseModel):

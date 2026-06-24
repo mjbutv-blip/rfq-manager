@@ -30,6 +30,7 @@ export interface InquiryItem {
   inquiry_month: string | null
   remark: string | null
   import_batch_id: string | null
+  applicable_factory_id: string | null
   created_at: string
   updated_at: string
 }

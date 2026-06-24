@@ -37,6 +37,7 @@ import PreparerAnalysisPage from "@/pages/PreparerAnalysisPage"
 import QuoteAnalysisOverviewPage from "@/pages/QuoteAnalysisOverviewPage"
 import DataCompletionTasksPage from "@/pages/DataCompletionTasksPage"
 import DataCompletionDashboardPage from "@/pages/DataCompletionDashboardPage"
+import InquiryJourneyPage from "@/pages/InquiryJourneyPage"
 import WarningPage         from "@/pages/WarningPage"
 import OperationLogPage    from "@/pages/OperationLogPage"
 import CustomerListPage    from "@/pages/CustomerListPage"
@@ -218,6 +219,7 @@ function AppLayout() {
           <Route path="/customer/:customerCode" element={<InquiryTablePage />} />
 
           <Route path="/inquiry/:id" element={<InquiryDetailPage />} />
+          <Route path="/inquiry/:id/journey" element={<InquiryJourneyPage />} />
 
           <Route path="/import" element={<InquiryImportPage />} />
 
