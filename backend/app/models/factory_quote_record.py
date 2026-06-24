@@ -12,11 +12,19 @@ class FactoryQuoteRecord(Base):
     __tablename__ = "factory_quote_records"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    factory_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("factories.id", ondelete="CASCADE"), nullable=False, index=True)
+    # 没有工厂档案时允许只存 factory_name（手绘需求："允许只保存 factory_name"）。
+    factory_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("factories.id", ondelete="CASCADE"), index=True)
     factory_name: Mapped[str | None] = mapped_column(Text)
 
     inquiry_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
     inquiry_no: Mapped[str | None] = mapped_column(Text, index=True)
+
+    # ── 按轮次填报的工厂报价卡片专用字段（不影响导入快照行，那些行 quote_round 始终为空）──
+    quote_round: Mapped[int | None] = mapped_column(Integer, index=True)
+    currency: Mapped[str | None] = mapped_column(Text)
+    price_unit: Mapped[str | None] = mapped_column(Text)
+    quoted_by: Mapped[str | None] = mapped_column(Text)
+    quoted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     product_category: Mapped[str | None] = mapped_column(Text)
     product_name: Mapped[str | None] = mapped_column(Text)

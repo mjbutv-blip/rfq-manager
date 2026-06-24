@@ -67,6 +67,8 @@ export const ACTION_TYPE_LABEL: Record<string, string> = {
   data_completion_task_complete:      "完成补录任务",
   data_completion_task_cancel:        "取消补录任务",
   data_completion_task_auto_complete: "自动完成补录任务",
+  data_completion_task_due_date_set:    "设置补录任务截止日期",
+  data_completion_task_due_date_update: "修改补录任务截止日期",
 }
 
 export const TARGET_TYPE_LABEL: Record<string, string> = {
@@ -124,6 +126,8 @@ export const ACTION_TYPE_COLOR: Record<string, string> = {
   data_completion_task_complete:      "green",
   data_completion_task_cancel:        "red",
   data_completion_task_auto_complete: "lime",
+  data_completion_task_due_date_set:    "cyan",
+  data_completion_task_due_date_update: "gold",
 }
 
 export const ROLE_LABEL: Record<string, string> = {

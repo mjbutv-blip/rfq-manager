@@ -308,16 +308,27 @@ function QuoteRecordTable({
           ? <a onClick={() => navigate(`/inquiry/${r.inquiry_id}`)}>{v}</a>
           : v ?? <Text type="secondary">—</Text>,
     },
+    {
+      title: "轮次",
+      dataIndex: "quote_round",
+      width: 70,
+      render: (v: number | null) => v != null ? <Tag>第{v}轮</Tag> : <Text type="secondary">—</Text>,
+    },
     { title: "产品大类", dataIndex: "product_category", width: 80, render: (v: string | null) => v ?? <Text type="secondary">—</Text> },
     { title: "产品名称", dataIndex: "product_name", width: 120, ellipsis: true, render: (v: string | null) => v ?? <Text type="secondary">—</Text> },
     { title: "系列", dataIndex: "series_name", width: 80, render: (v: string | null) => v ?? <Text type="secondary">—</Text> },
     { title: "数量", dataIndex: "quantity", width: 60, align: "right" as const },
     {
-      title: "工厂价(CNY)",
-      dataIndex: "factory_price",
-      width: 100,
+      title: "工厂价",
+      key: "factory_price",
+      width: 110,
       align: "right" as const,
-      render: (v: number | null) => v != null ? money(v) : <Text type="secondary">—</Text>,
+      render: (_: unknown, r: FactoryQuoteRecord) =>
+        r.factory_price != null
+          ? (r.quote_round != null
+              ? `${r.factory_price} ${r.currency ?? ""}/${r.price_unit ?? ""}`
+              : money(r.factory_price))
+          : <Text type="secondary">—</Text>,
     },
     {
       title: "是否下单",

@@ -5,7 +5,6 @@ import zhCN from "antd/locale/zh_CN"
 import {
   BarChartOutlined,
   BellOutlined,
-  CheckSquareOutlined,
   ClockCircleOutlined,
   CloudServerOutlined,
   ContactsOutlined,
@@ -37,6 +36,7 @@ import QuantityAnalysisPage from "@/pages/QuantityAnalysisPage"
 import PreparerAnalysisPage from "@/pages/PreparerAnalysisPage"
 import QuoteAnalysisOverviewPage from "@/pages/QuoteAnalysisOverviewPage"
 import DataCompletionTasksPage from "@/pages/DataCompletionTasksPage"
+import DataCompletionDashboardPage from "@/pages/DataCompletionDashboardPage"
 import WarningPage         from "@/pages/WarningPage"
 import OperationLogPage    from "@/pages/OperationLogPage"
 import CustomerListPage    from "@/pages/CustomerListPage"
@@ -106,6 +106,8 @@ function AppLayout() {
     ? "analytics"
     : pathname.startsWith("/warnings")
     ? "warnings"
+    : pathname.startsWith("/data-completion-dashboard")
+    ? "data-completion-dashboard"
     : pathname.startsWith("/data-completion-tasks")
     ? "data-completion-tasks"
     : pathname.startsWith("/operation-logs")
@@ -145,18 +147,11 @@ function AppLayout() {
     { key: "quote-preparer-analysis", label: "报价填报人分析", onClick: () => navigate("/quote-preparer-analysis") },
   ]
 
-  const menuItems: (MenuItem | null)[] = [
-    { key: "dashboard", icon: <DashboardOutlined />, label: "数据总览", onClick: () => navigate("/dashboard") },
-    { key: "inquiries", icon: <FileTextOutlined />, label: "询单总表", onClick: () => navigate("/") },
-    canImport
-      ? { key: "import", icon: <UploadOutlined />, label: "导入询单", onClick: () => navigate("/import") }
-      : null,
-    { key: "analytics", icon: <BarChartOutlined />, label: "数据分析", onClick: () => navigate("/analytics") },
-    { key: "report-analysis-group", icon: <FileSearchOutlined />, label: "报价资料分析", children: reportAnalysisChildren },
+  // 预警中心 / 补录任务看板 / 资料补录任务 都是"风险与追溯"性质的页面，收进一个下拉分组
+  const riskTraceChildren: (MenuItem | null)[] = [
     canViewWarnings
       ? {
           key: "warnings",
-          icon: <BellOutlined />,
           label: (
             <Badge count={highCount} size="small" offset={[6, -2]}>
               预警中心
@@ -165,7 +160,19 @@ function AppLayout() {
           onClick: () => navigate("/warnings"),
         }
       : null,
-    { key: "data-completion-tasks", icon: <CheckSquareOutlined />, label: "资料补录任务", onClick: () => navigate("/data-completion-tasks") },
+    { key: "data-completion-dashboard", label: "补录任务看板", onClick: () => navigate("/data-completion-dashboard") },
+    { key: "data-completion-tasks", label: "资料补录任务", onClick: () => navigate("/data-completion-tasks") },
+  ]
+
+  const menuItems: (MenuItem | null)[] = [
+    { key: "dashboard", icon: <DashboardOutlined />, label: "数据总览", onClick: () => navigate("/dashboard") },
+    { key: "inquiries", icon: <FileTextOutlined />, label: "询单总表", onClick: () => navigate("/") },
+    canImport
+      ? { key: "import", icon: <UploadOutlined />, label: "导入询单", onClick: () => navigate("/import") }
+      : null,
+    { key: "analytics", icon: <BarChartOutlined />, label: "数据分析", onClick: () => navigate("/analytics") },
+    { key: "report-analysis-group", icon: <FileSearchOutlined />, label: "报价资料分析", children: reportAnalysisChildren },
+    { key: "risk-trace-group", icon: <BellOutlined />, label: "风险与追溯", children: riskTraceChildren.filter(Boolean) as MenuItem[] },
     canViewLogs
       ? { key: "operation-logs", icon: <ClockCircleOutlined />, label: "操作日志", onClick: () => navigate("/operation-logs") }
       : null,
@@ -223,6 +230,7 @@ function AppLayout() {
           <Route path="/quote-preparer-analysis" element={<PreparerAnalysisPage />} />
           <Route path="/quote-analysis-overview" element={<QuoteAnalysisOverviewPage />} />
           <Route path="/data-completion-tasks" element={<DataCompletionTasksPage />} />
+          <Route path="/data-completion-dashboard" element={<DataCompletionDashboardPage />} />
 
           <Route path="/warnings" element={<WarningPage />} />
 

@@ -182,6 +182,9 @@ def _qr_to_dict(r: FactoryQuoteRecord) -> dict[str, Any]:
         "created_by":       r.created_by,
         "created_at":       r.created_at.isoformat() if r.created_at else None,
         "updated_at":       r.updated_at.isoformat() if r.updated_at else None,
+        "quote_round":      r.quote_round,
+        "currency":         r.currency,
+        "price_unit":       r.price_unit,
     }
 
 

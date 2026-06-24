@@ -36,6 +36,7 @@ export default function CreateTaskButton({ itemId, sourceModule }: { itemId: str
       msgApi.success(res.created ? "已创建补录任务" : "该款式已有未完成补录任务")
       queryClient.invalidateQueries({ queryKey: ["active-completion-task", itemId] })
       queryClient.invalidateQueries({ queryKey: ["data-completion-tasks"] })
+      queryClient.invalidateQueries({ queryKey: ["data-completion-dashboard"] })
     },
     onError: (e: unknown) => msgApi.error(apiErrorDetail(e, "创建补录任务失败")),
   })

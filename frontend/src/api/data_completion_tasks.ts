@@ -1,5 +1,7 @@
 import client from "./client"
 import type {
+  DashboardFilter,
+  DashboardResponse,
   DataCompletionTask,
   DataCompletionTaskCreateBody,
   DataCompletionTaskCreateResponse,
@@ -51,5 +53,15 @@ export async function completeDataCompletionTask(taskId: string, remark?: string
 
 export async function cancelDataCompletionTask(taskId: string, reason?: string): Promise<DataCompletionTask> {
   const { data } = await client.post<DataCompletionTask>(`/data-completion-tasks/${taskId}/cancel`, { reason })
+  return data
+}
+
+export async function fetchDataCompletionDashboard(
+  filter: DashboardFilter,
+): Promise<DashboardResponse> {
+  const params = Object.fromEntries(
+    Object.entries(filter).filter(([, v]) => v !== "" && v != null)
+  )
+  const { data } = await client.get<DashboardResponse>("/data-completion-tasks/dashboard", { params })
   return data
 }

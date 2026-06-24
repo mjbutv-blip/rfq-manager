@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app.models.inquiry import Inquiry
@@ -33,6 +33,59 @@ ALL_STATUSES = {"open", "in_progress", "completed", "cancelled"}
 PRIORITIES = {"high", "medium", "low"}
 
 COMBO_FIELDS = {"款号", "原始工艺说明/标准化工艺标签", "原始尺码范围/标准化尺码", "报价单填报人"}
+
+# ── 截止日期 / 逾期状态（Step 11）──────────────────────────────────────────────
+
+# 创建任务时，用户没有手动填写 due_date 才会用这个默认值；自然日，不精确到分钟。
+DEFAULT_DUE_DAYS = {"high": 3, "medium": 7, "low": 14}
+
+DUE_STATES = {"overdue", "due_soon", "normal", "no_due_date"}
+PRIORITY_RANK = {"high": 2, "medium": 1, "low": 0}
+
+
+def default_due_date(priority: str, created_on: date) -> date:
+    """high→创建后3天，medium→7天，low→14天。只在用户没填 due_date 时调用。"""
+    return created_on + timedelta(days=DEFAULT_DUE_DAYS.get(priority, DEFAULT_DUE_DAYS["medium"]))
+
+
+def compute_due_state(status: str, due_date: date | None, today: date | None = None) -> str | None:
+    """
+    completed/cancelled 不参与逾期统计，返回 None（不是这 4 个状态之一）。
+    open/in_progress 才计算：
+      due_date 为空 → no_due_date
+      due_date < 今天 → overdue
+      今天 <= due_date <= 今天+3天 → due_soon
+      due_date > 今天+3天 → normal
+    """
+    if status not in OPEN_STATUSES:
+        return None
+    if today is None:
+        today = date.today()
+    if due_date is None:
+        return "no_due_date"
+    if due_date < today:
+        return "overdue"
+    if due_date <= today + timedelta(days=3):
+        return "due_soon"
+    return "normal"
+
+
+def overdue_days(due_date: date | None, today: date | None = None) -> int | None:
+    if due_date is None:
+        return None
+    if today is None:
+        today = date.today()
+    days = (today - due_date).days
+    return days if days > 0 else None
+
+
+def days_until_due(due_date: date | None, today: date | None = None) -> int | None:
+    if due_date is None:
+        return None
+    if today is None:
+        today = date.today()
+    days = (due_date - today).days
+    return days if days >= 0 else None
 
 
 def compute_missing_fields(item: InquiryItem) -> list[str]:

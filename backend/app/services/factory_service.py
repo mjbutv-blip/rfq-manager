@@ -29,7 +29,13 @@ async def generate_factory_code(db: AsyncSession) -> str:
 # ── 工厂统计（单个工厂）──────────────────────────────────────────────────────
 
 async def get_factory_stats(db: AsyncSession, factory_id: uuid.UUID) -> dict[str, Any]:
-    base = select(FactoryQuoteRecord).where(FactoryQuoteRecord.factory_id == factory_id)
+    # 询单详情页"工厂报价录入"按轮次填报的卡片（quote_round 非空）跟这里的"一次成交快照"
+    # 统计口径不是一回事——同一笔生意议价 3 轮就会有 3 条记录，混进来会把
+    # avg_factory_price / quote_count 拉偏。这里的统计只看导入/旧表单产生的快照行。
+    base = select(FactoryQuoteRecord).where(
+        FactoryQuoteRecord.factory_id == factory_id,
+        FactoryQuoteRecord.quote_round.is_(None),
+    )
 
     # 聚合指标
     agg = await db.execute(
@@ -44,7 +50,10 @@ async def get_factory_stats(db: AsyncSession, factory_id: uuid.UUID) -> dict[str
             func.max(
                 case((FactoryQuoteRecord.is_ordered == True, FactoryQuoteRecord.quote_date), else_=None)
             ).label("last_order_date"),
-        ).where(FactoryQuoteRecord.factory_id == factory_id)
+        ).where(
+            FactoryQuoteRecord.factory_id == factory_id,
+            FactoryQuoteRecord.quote_round.is_(None),
+        )
     )
     row = agg.fetchone()
 
@@ -61,6 +70,7 @@ async def get_factory_stats(db: AsyncSession, factory_id: uuid.UUID) -> dict[str
         select(FactoryQuoteRecord.product_category, func.count().label("n"))
         .where(
             FactoryQuoteRecord.factory_id == factory_id,
+            FactoryQuoteRecord.quote_round.is_(None),
             FactoryQuoteRecord.product_category.isnot(None),
         )
         .group_by(FactoryQuoteRecord.product_category)
@@ -74,6 +84,7 @@ async def get_factory_stats(db: AsyncSession, factory_id: uuid.UUID) -> dict[str
         select(FactoryQuoteRecord.series_name, func.count().label("n"))
         .where(
             FactoryQuoteRecord.factory_id == factory_id,
+            FactoryQuoteRecord.quote_round.is_(None),
             FactoryQuoteRecord.series_name.isnot(None),
         )
         .group_by(FactoryQuoteRecord.series_name)
@@ -109,7 +120,10 @@ async def get_factory_list_stats(db: AsyncSession, factory_ids: list[uuid.UUID])
                 case((FactoryQuoteRecord.is_ordered == True, FactoryQuoteRecord.trade_amount), else_=None)
             ).label("total_trade_amount"),
         )
-        .where(FactoryQuoteRecord.factory_id.in_(factory_ids))
+        .where(
+            FactoryQuoteRecord.factory_id.in_(factory_ids),
+            FactoryQuoteRecord.quote_round.is_(None),
+        )
         .group_by(FactoryQuoteRecord.factory_id)
     )
     result: dict[str, dict] = {}

@@ -2,7 +2,7 @@ import React, { useState } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  Alert, Badge, Breadcrumb, Button, Card, Checkbox, Col, Collapse, DatePicker, Drawer,
+  Alert, AutoComplete, Badge, Breadcrumb, Button, Card, Checkbox, Col, Collapse, DatePicker, Drawer,
   Descriptions, Form, Input, InputNumber, Modal, Popconfirm, Row, Select,
   Space, Spin, Table, Tag, Tooltip, Typography, message,
 } from "antd"
@@ -16,7 +16,10 @@ import dayjs from "dayjs"
 import { deleteInquiry, fetchInquiry, updateInquiry } from "@/api/inquiries"
 import { fetchInquiryWarnings, resolveWarning } from "@/api/warnings"
 import { createTransfer, fetchInquiryTransfers, getFactoryContractUrl, getFinanceTransferUrl } from "@/api/transfers"
-import { createQuoteRecord, fetchInquiryFactoryQuoteRecords } from "@/api/factories"
+import { fetchFactories } from "@/api/factories"
+import {
+  createFactoryQuote, deleteFactoryQuote, fetchInquiryFactoryQuotes, updateFactoryQuote,
+} from "@/api/factory_quotes"
 import { createSample, fetchInquirySamples } from "@/api/samples"
 import { fetchInquiryProductions } from "@/api/productions"
 import {
@@ -36,6 +39,8 @@ import { TRANSFER_STATUS_COLOR, TRANSFER_STATUS_LABEL } from "@/types/transfer"
 import type { InquiryStyleItem } from "@/types/inquiry_style_item"
 import { fetchActiveTaskForItem } from "@/api/data_completion_tasks"
 import { TASK_STATUS_COLOR, TASK_STATUS_LABEL } from "@/types/data_completion_task"
+import type { FactoryQuote } from "@/types/factory_quote"
+import { CURRENCY_OPTIONS, PRICE_UNIT_OPTIONS } from "@/types/factory_quote"
 
 const { Title, Text } = Typography
 
@@ -466,126 +471,284 @@ function TransferCard({ inquiryId, orderStatus, canTransfer }: TransferCardProps
 
 // ── 工厂报价记录卡片 ──────────────────────────────────────────────────────────
 
-function FactoryQuoteCard({ inquiryId, inquiry, canEdit }: {
+interface QuoteCardForm {
+  factory_id: string | null
+  factory_name: string
+  quote_round: number
+  factory_price: number | null
+  currency: string
+  price_unit: string
+  remark: string
+}
+
+function emptyQuoteCardForm(defaultRound: number): QuoteCardForm {
+  return { factory_id: null, factory_name: "", quote_round: defaultRound, factory_price: null, currency: "USD", price_unit: "件", remark: "" }
+}
+
+function quoteCardFormFromRecord(r: FactoryQuote): QuoteCardForm {
+  return {
+    factory_id: r.factory_id, factory_name: r.factory_name ?? "", quote_round: r.quote_round,
+    factory_price: r.factory_price, currency: r.currency, price_unit: r.price_unit, remark: r.remark ?? "",
+  }
+}
+
+function QuoteRoundCard({
+  form, onFormChange, factoryOptions, hasFactoryProfile, canEdit, comparison,
+  isDraft, saving, deleting, onSave, onDelete, quotedBy, quotedAt,
+}: {
+  form: QuoteCardForm
+  onFormChange: (f: QuoteCardForm) => void
+  factoryOptions: { value: string; id: string }[]
+  hasFactoryProfile: boolean
+  canEdit: boolean
+  comparison: FactoryQuote["round_comparison"]
+  isDraft: boolean
+  saving: boolean
+  deleting: boolean
+  onSave: () => void
+  onDelete: () => void
+  quotedBy?: string | null
+  quotedAt?: string | null
+}) {
+  return (
+    <Card size="small" style={{ marginBottom: 12, background: isDraft ? "#fafafa" : undefined }}>
+      <Space direction="vertical" style={{ width: "100%" }} size={10}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <Text strong>第 {form.quote_round || 1} 轮工厂报价</Text>
+          <Space size={6}>
+            {comparison === "lowest" && <Tag color="green">本轮最低</Tag>}
+            {comparison === "mismatch" && <Text type="secondary" style={{ fontSize: 12 }}>币种或单位不一致，暂不比较</Text>}
+          </Space>
+        </div>
+
+        <Row gutter={12}>
+          <Col span={5}>
+            <Text type="secondary" style={{ fontSize: 12 }}>轮次</Text>
+            <InputNumber
+              min={1} value={form.quote_round} disabled={!canEdit} style={{ width: "100%" }}
+              onChange={v => onFormChange({ ...form, quote_round: v || 1 })}
+            />
+          </Col>
+          <Col span={11}>
+            <Text type="secondary" style={{ fontSize: 12 }}>工厂</Text>
+            <AutoComplete
+              disabled={!canEdit}
+              value={form.factory_name}
+              options={factoryOptions}
+              filterOption={(input, option) => (option?.value ?? "").toLowerCase().includes(input.toLowerCase())}
+              onSelect={(value, option) => onFormChange({ ...form, factory_name: value, factory_id: (option as { id: string }).id })}
+              onChange={value => onFormChange({ ...form, factory_name: value, factory_id: null })}
+              style={{ width: "100%" }}
+              placeholder="选择已有工厂或输入新工厂名称"
+            />
+            {form.factory_name && !hasFactoryProfile && !form.factory_id && (
+              <Text type="warning" style={{ fontSize: 11 }}>该工厂尚未建立工厂档案，仍可保存</Text>
+            )}
+          </Col>
+          <Col span={8}>
+            <Text type="secondary" style={{ fontSize: 12 }}>工厂报价</Text>
+            <InputNumber
+              min={0} precision={4} disabled={!canEdit} style={{ width: "100%" }}
+              value={form.factory_price} onChange={v => onFormChange({ ...form, factory_price: v })}
+            />
+          </Col>
+        </Row>
+
+        <Row gutter={12}>
+          <Col span={5}>
+            <Text type="secondary" style={{ fontSize: 12 }}>币种</Text>
+            <Select
+              disabled={!canEdit} value={form.currency} style={{ width: "100%" }}
+              options={CURRENCY_OPTIONS.map(c => ({ label: c, value: c }))}
+              onChange={v => onFormChange({ ...form, currency: v })}
+            />
+          </Col>
+          <Col span={5}>
+            <Text type="secondary" style={{ fontSize: 12 }}>单位</Text>
+            <Select
+              disabled={!canEdit} value={form.price_unit} style={{ width: "100%" }}
+              options={PRICE_UNIT_OPTIONS.map(u => ({ label: u, value: u }))}
+              onChange={v => onFormChange({ ...form, price_unit: v })}
+            />
+          </Col>
+          <Col span={14}>
+            <Text type="secondary" style={{ fontSize: 12 }}>备注</Text>
+            <Input
+              disabled={!canEdit} value={form.remark} placeholder="如：含包装 / 未含运费 / MOQ 3000 / 二次议价后"
+              onChange={e => onFormChange({ ...form, remark: e.target.value })}
+            />
+          </Col>
+        </Row>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            {!isDraft && (quotedBy ? `报价人 ${quotedBy}` : "")}
+            {!isDraft && quotedAt ? ` · ${new Date(quotedAt).toLocaleString("zh-CN")}` : ""}
+          </Text>
+          {canEdit && (
+            <Space>
+              <Popconfirm title={isDraft ? "取消新增该卡片？" : "删除该工厂报价？"} onConfirm={onDelete}>
+                <Button size="small" danger loading={deleting}>{isDraft ? "取消" : "删除"}</Button>
+              </Popconfirm>
+              <Button size="small" type="primary" loading={saving} onClick={onSave}>保存</Button>
+            </Space>
+          )}
+        </div>
+      </Space>
+    </Card>
+  )
+}
+
+function FactoryQuoteCard({ inquiryId, canEdit }: {
   inquiryId: string
-  inquiry: InquiryItem
   canEdit: boolean
 }) {
   const [msgApi, ctx] = message.useMessage()
-  const [showAdd, setShowAdd] = useState(false)
-  const [addForm] = Form.useForm()
+  const queryClient = useQueryClient()
 
-  const { data: records = [], refetch } = useQuery({
-    queryKey: ["inquiry-factory-qr", inquiryId],
-    queryFn: () => fetchInquiryFactoryQuoteRecords(inquiryId),
+  const { data } = useQuery({
+    queryKey: ["factory-quotes", inquiryId],
+    queryFn: () => fetchInquiryFactoryQuotes(inquiryId),
+  })
+  const records = data?.items ?? []
+  const effectiveCanEdit = canEdit && (data?.can_edit ?? true)
+
+  const { data: factoryList } = useQuery({
+    queryKey: ["factories-for-quote-select"],
+    queryFn: () => fetchFactories({ page_size: 200 }),
+  })
+  const factoryOptions = (factoryList?.items ?? []).map(f => ({
+    value: f.factory_short_name || f.factory_name || "", id: f.id,
+  }))
+
+  const [edits, setEdits] = useState<Record<string, QuoteCardForm>>({})
+  const [drafts, setDrafts] = useState<{ localId: string; form: QuoteCardForm }[]>([])
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["factory-quotes", inquiryId] })
+    queryClient.invalidateQueries({ queryKey: ["operation-logs"] })
+  }
+
+  const formFor = (r: FactoryQuote): QuoteCardForm => edits[r.id] ?? quoteCardFormFromRecord(r)
+
+  const nextRoundDefault = () => {
+    const rounds = [...records.map(r => r.quote_round), ...drafts.map(d => d.form.quote_round)]
+    return (rounds.length ? Math.max(...rounds) : 0) + 1
+  }
+
+  const addDraft = () => {
+    const localId = `draft-${Date.now()}`
+    setDrafts(prev => [...prev, { localId, form: emptyQuoteCardForm(nextRoundDefault()) }])
+  }
+
+  const validateForm = (form: QuoteCardForm): string | null => {
+    if (!form.factory_id && !form.factory_name.trim()) return "请选择工厂或填写工厂名称"
+    if (form.factory_price == null || form.factory_price < 0) return "请填写工厂报价（不能为负数）"
+    return null
+  }
+
+  const toBody = (form: QuoteCardForm) => ({
+    factory_id: form.factory_id,
+    factory_name: form.factory_name.trim() || undefined,
+    quote_round: form.quote_round || 1,
+    factory_price: form.factory_price ?? 0,
+    currency: form.currency,
+    price_unit: form.price_unit,
+    remark: form.remark.trim() || undefined,
   })
 
-  const addMutation = useMutation({
-    mutationFn: createQuoteRecord,
-    onSuccess: () => {
-      msgApi.success("工厂报价记录已保存")
-      setShowAdd(false)
-      addForm.resetFields()
-      refetch()
+  const createMutation = useMutation({
+    mutationFn: ({ form }: { localId: string; form: QuoteCardForm }) => createFactoryQuote(inquiryId, toBody(form)),
+    onSuccess: (_res, vars) => {
+      msgApi.success("工厂报价已保存")
+      setDrafts(prev => prev.filter(d => d.localId !== vars.localId))
+      invalidate()
     },
-    onError: (e: unknown) => {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      msgApi.error(msg ?? "保存失败")
-    },
+    onError: (e: unknown) => msgApi.error(apiErrorDetail(e, "保存失败")),
   })
 
-  const columns = [
-    { title: "工厂", dataIndex: "factory_name", width: 120, render: (v: string | null) => v ?? <Text type="secondary">—</Text> },
-    { title: "报价日期", dataIndex: "quote_date", width: 90 },
-    { title: "产品大类", dataIndex: "product_category", width: 80, render: (v: string | null) => v ?? <Text type="secondary">—</Text> },
-    { title: "工厂价(CNY)", dataIndex: "factory_price", width: 100, align: "right" as const,
-      render: (v: number | null) => v != null ? `¥${v.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : <Text type="secondary">—</Text> },
-    { title: "是否下单", dataIndex: "is_ordered", width: 75,
-      render: (v: boolean) => <Tag color={v ? "green" : "default"}>{v ? "已下单" : "未下单"}</Tag> },
-    { title: "备注", dataIndex: "remark", width: 100, ellipsis: true, render: (v: string | null) => v ?? <Text type="secondary">—</Text> },
-  ]
+  const updateMutation = useMutation({
+    mutationFn: ({ id, form }: { id: string; form: QuoteCardForm }) => updateFactoryQuote(id, toBody(form)),
+    onSuccess: (_res, vars) => {
+      msgApi.success("工厂报价已更新")
+      setEdits(prev => { const next = { ...prev }; delete next[vars.id]; return next })
+      invalidate()
+    },
+    onError: (e: unknown) => msgApi.error(apiErrorDetail(e, "保存失败")),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteFactoryQuote(id),
+    onSuccess: () => { msgApi.success("已删除"); invalidate() },
+    onError: (e: unknown) => msgApi.error(apiErrorDetail(e, "删除失败")),
+  })
+
+  const handleSaveDraft = (localId: string, form: QuoteCardForm) => {
+    const err = validateForm(form)
+    if (err) { msgApi.warning(err); return }
+    createMutation.mutate({ localId, form })
+  }
+
+  const handleSaveExisting = (id: string, form: QuoteCardForm) => {
+    const err = validateForm(form)
+    if (err) { msgApi.warning(err); return }
+    updateMutation.mutate({ id, form })
+  }
 
   return (
     <>
       {ctx}
       <Card
         size="small"
-        title="工厂报价记录"
-        extra={canEdit && (
-          <Button size="small" icon={<CheckOutlined />} onClick={() => {
-            addForm.setFieldsValue({
-              product_category: inquiry.product_category,
-              product_name: inquiry.product_name,
-              series_name: inquiry.series_name,
-              quantity: inquiry.order_quantity,
-              factory_price: inquiry.factory_price,
-              order_status: inquiry.order_status,
-              is_ordered: ["下单","已下单","确认转单"].includes(inquiry.order_status ?? ""),
-            })
-            setShowAdd(true)
-          }}>
-            新增工厂报价
-          </Button>
+        title="工厂报价录入"
+        extra={effectiveCanEdit && (
+          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={addDraft}>新增工厂报价</Button>
         )}
       >
-        {records.length === 0
-          ? <Text type="secondary">暂无工厂报价记录</Text>
-          : <Table
-              rowKey="id"
-              columns={columns}
-              dataSource={records}
-              size="small"
-              pagination={false}
-              scroll={{ x: 600 }}
-            />}
+        <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 12 }}>
+          记录同一询单在不同报价轮次中，各工厂的报价、币种、单位和备注。
+        </Text>
+        {records.length === 0 && drafts.length === 0 ? (
+          <Text type="secondary">暂无工厂报价{effectiveCanEdit ? "，点击右上角「新增工厂报价」开始记录" : ""}</Text>
+        ) : (
+          <>
+            {records.map(r => (
+              <QuoteRoundCard
+                key={r.id}
+                form={formFor(r)}
+                onFormChange={f => setEdits(prev => ({ ...prev, [r.id]: f }))}
+                factoryOptions={factoryOptions}
+                hasFactoryProfile={r.has_factory_profile}
+                canEdit={effectiveCanEdit}
+                comparison={r.round_comparison}
+                isDraft={false}
+                saving={updateMutation.isPending && updateMutation.variables?.id === r.id}
+                deleting={deleteMutation.isPending && deleteMutation.variables === r.id}
+                onSave={() => handleSaveExisting(r.id, formFor(r))}
+                onDelete={() => deleteMutation.mutate(r.id)}
+                quotedBy={r.quoted_by}
+                quotedAt={r.quoted_at}
+              />
+            ))}
+            {drafts.map(d => (
+              <QuoteRoundCard
+                key={d.localId}
+                form={d.form}
+                onFormChange={f => setDrafts(prev => prev.map(x => x.localId === d.localId ? { ...x, form: f } : x))}
+                factoryOptions={factoryOptions}
+                hasFactoryProfile={false}
+                canEdit={effectiveCanEdit}
+                comparison={null}
+                isDraft={true}
+                saving={createMutation.isPending && createMutation.variables?.localId === d.localId}
+                deleting={false}
+                onSave={() => handleSaveDraft(d.localId, d.form)}
+                onDelete={() => setDrafts(prev => prev.filter(x => x.localId !== d.localId))}
+              />
+            ))}
+          </>
+        )}
       </Card>
-
-      <Modal
-        title="新增工厂报价记录"
-        open={showAdd}
-        onCancel={() => { setShowAdd(false); addForm.resetFields() }}
-        onOk={() => addForm.submit()}
-        confirmLoading={addMutation.isPending}
-        width={600}
-      >
-        <Form
-          form={addForm}
-          layout="vertical"
-          size="small"
-          onFinish={values => {
-            const payload = {
-              ...values,
-              inquiry_id: inquiryId,
-              inquiry_no: inquiry.inquiry_no,
-            }
-            if (values.quote_date) payload.quote_date = values.quote_date.format("YYYY-MM-DD")
-            addMutation.mutate(payload)
-          }}
-        >
-          <Row gutter={12}>
-            <Col span={16}>
-              <Form.Item name="factory_id" label="选择工厂 (ID)" rules={[{ required: true, message: "请输入工厂 ID" }]}>
-                <Input placeholder="从工厂档案页复制工厂 ID" />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="quote_date" label="报价日期">
-                <DatePicker style={{ width: "100%" }} defaultValue={dayjs()} />
-              </Form.Item>
-            </Col>
-            <Col span={8}><Form.Item name="product_category" label="产品大类"><Input /></Form.Item></Col>
-            <Col span={8}><Form.Item name="product_name" label="产品名称"><Input /></Form.Item></Col>
-            <Col span={8}><Form.Item name="series_name" label="系列"><Input /></Form.Item></Col>
-            <Col span={6}><Form.Item name="quantity" label="数量"><InputNumber style={{ width: "100%" }} min={0} /></Form.Item></Col>
-            <Col span={6}><Form.Item name="factory_price" label="工厂价(CNY)"><InputNumber style={{ width: "100%" }} prefix="¥" precision={4} min={0} /></Form.Item></Col>
-            <Col span={6}><Form.Item name="is_ordered" label="是否下单" initialValue={false}>
-              <Select options={[{ label: "未下单", value: false }, { label: "已下单", value: true }]} />
-            </Form.Item></Col>
-            <Col span={6}><Form.Item name="trade_amount" label="贸易额(USD)"><InputNumber style={{ width: "100%" }} prefix="$" precision={2} min={0} /></Form.Item></Col>
-            <Col span={24}><Form.Item name="remark" label="备注"><Input /></Form.Item></Col>
-          </Row>
-        </Form>
-      </Modal>
     </>
   )
 }
@@ -738,8 +901,9 @@ function ProductionCard({ inquiryId }: { inquiryId: string }) {
 // ── 款式明细 / 报价资料 ────────────────────────────────────────────────────────
 
 function apiErrorDetail(e: unknown, fallback: string): string {
-  const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-  return msg ?? fallback
+  // client.ts 的响应拦截器已经把 axios 错误统一转成了 Error(detail)，
+  // 这里不会再有 e.response.data.detail 这层结构。
+  return (e as Error)?.message || fallback
 }
 
 function StyleSizeRangeCell({ item }: { item: InquiryStyleItem }) {
@@ -1158,6 +1322,7 @@ function StyleItemsCard({
     queryClient.invalidateQueries({ queryKey: ["quote-preparer-analysis"] })
     queryClient.invalidateQueries({ queryKey: ["quote-analysis-overview"] })
     queryClient.invalidateQueries({ queryKey: ["data-completion-tasks"] })
+    queryClient.invalidateQueries({ queryKey: ["data-completion-dashboard"] })
     queryClient.invalidateQueries({ queryKey: ["active-completion-task"] })
   }
 
@@ -1302,6 +1467,7 @@ export default function InquiryDetailPage() {
       "quote-data-quality", "customer-category-styles",
       "process-analysis", "size-analysis", "quantity-analysis",
       "quote-preparer-analysis", "quote-analysis-overview",
+      "data-completion-tasks", "data-completion-dashboard", "operation-logs",
     ]) {
       queryClient.invalidateQueries({ queryKey: [key] })
     }
@@ -1511,9 +1677,9 @@ export default function InquiryDetailPage() {
           />
         </Col>
 
-        {/* 工厂报价记录 */}
+        {/* 工厂报价录入 */}
         <Col span={24}>
-          <FactoryQuoteCard inquiryId={id!} inquiry={inq} canEdit={canEdit} />
+          <FactoryQuoteCard inquiryId={id!} canEdit={canEdit} />
         </Col>
 
         {/* 打样记录 */}

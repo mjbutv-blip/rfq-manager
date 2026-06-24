@@ -89,6 +89,10 @@ export interface FactoryQuoteRecord {
   created_by: string | null
   created_at: string | null
   updated_at: string | null
+  // 询单工厂价格录入（按轮次填报）专用字段，旧的导入快照行没有这些值
+  quote_round: number | null
+  currency: string | null
+  price_unit: string | null
 }
 
 export interface QuoteRecordCreate {

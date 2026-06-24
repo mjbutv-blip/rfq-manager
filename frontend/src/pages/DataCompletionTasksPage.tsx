@@ -5,8 +5,8 @@
  * 对应一条款式明细；款式资料补齐后任务会自动完成，不需要手动刷新。
  */
 
-import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useEffect, useState } from "react"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query"
 import {
   Button, Card, DatePicker, Drawer, Input, message, Popconfirm, Select,
@@ -16,15 +16,15 @@ import type { ColumnsType } from "antd/es/table"
 import type { Dayjs } from "dayjs"
 
 import {
-  cancelDataCompletionTask, completeDataCompletionTask,
+  cancelDataCompletionTask, completeDataCompletionTask, fetchDataCompletionTask,
   fetchDataCompletionTasks, updateDataCompletionTask,
 } from "@/api/data_completion_tasks"
 import { useCurrentUser } from "@/contexts/UserContext"
 import type {
-  DataCompletionTask, DataCompletionTaskFilter, TaskPriority, TaskStatus,
+  DataCompletionTask, DataCompletionTaskFilter, DueState, TaskPriority, TaskStatus,
 } from "@/types/data_completion_task"
 import {
-  SOURCE_MODULE_LABEL, TASK_PRIORITY_COLOR, TASK_PRIORITY_LABEL,
+  DUE_STATE_COLOR, DUE_STATE_LABEL, SOURCE_MODULE_LABEL, TASK_PRIORITY_COLOR, TASK_PRIORITY_LABEL,
   TASK_STATUS_COLOR, TASK_STATUS_LABEL,
 } from "@/types/data_completion_task"
 
@@ -33,28 +33,51 @@ const { RangePicker } = DatePicker
 
 const STATUS_OPTIONS = (Object.keys(TASK_STATUS_LABEL) as TaskStatus[]).map(v => ({ label: TASK_STATUS_LABEL[v], value: v }))
 const PRIORITY_OPTIONS = (Object.keys(TASK_PRIORITY_LABEL) as TaskPriority[]).map(v => ({ label: TASK_PRIORITY_LABEL[v], value: v }))
+const DUE_STATE_OPTIONS = (Object.keys(DUE_STATE_LABEL) as DueState[]).map(v => ({ label: DUE_STATE_LABEL[v], value: v }))
+
+function dueStateText(task: DataCompletionTask): string | null {
+  if (task.due_state === "overdue") return `已逾期 ${task.overdue_days} 天`
+  if (task.due_state === "due_soon") return `剩 ${task.days_until_due} 天`
+  return null
+}
 
 function apiErrorDetail(e: unknown, fallback: string): string {
-  const err = e as { response?: { data?: { detail?: string } } }
-  return err?.response?.data?.detail ?? fallback
+  // client.ts 的响应拦截器已经把 axios 错误统一转成了 Error(detail)。
+  return (e as Error)?.message || fallback
 }
 
 export default function DataCompletionTasksPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const currentUser = useCurrentUser()
   const canManage = currentUser.role !== "viewer"
   const [msgApi, msgCtx] = message.useMessage()
 
-  const [status, setStatus] = useState<TaskStatus | undefined>(undefined)
-  const [priority, setPriority] = useState<TaskPriority | undefined>(undefined)
-  const [assignedTo, setAssignedTo] = useState("")
-  const [groupName, setGroupName] = useState("")
+  // 支持从看板（/data-completion-dashboard）带筛选条件跳转过来，进入页面时自动套用
+  const [status, setStatus] = useState<TaskStatus | undefined>((searchParams.get("status") as TaskStatus) || undefined)
+  const [priority, setPriority] = useState<TaskPriority | undefined>((searchParams.get("priority") as TaskPriority) || undefined)
+  const [assignedTo, setAssignedTo] = useState(searchParams.get("assigned_to") ?? "")
+  const [groupName, setGroupName] = useState(searchParams.get("group_name") ?? "")
   const [customerCode, setCustomerCode] = useState("")
   const [responsibleSales, setResponsibleSales] = useState("")
+  const [dueState, setDueState] = useState<DueState | undefined>((searchParams.get("due_state") as DueState) || undefined)
   const [createdRange, setCreatedRange] = useState<[Dayjs | null, Dayjs | null]>([null, null])
   const [dueRange, setDueRange] = useState<[Dayjs | null, Dayjs | null]>([null, null])
   const [detailTask, setDetailTask] = useState<DataCompletionTask | null>(null)
+  const [assignInput, setAssignInput] = useState("")
+
+  // 从看板"去分配"按钮跳转过来时带着 task_id，自动打开该任务详情
+  useEffect(() => {
+    const taskId = searchParams.get("task_id")
+    if (taskId) {
+      fetchDataCompletionTask(taskId).then(setDetailTask).catch(() => {})
+    }
+  }, [searchParams])
+
+  useEffect(() => {
+    setAssignInput(detailTask?.assigned_to ?? "")
+  }, [detailTask])
 
   const filter: DataCompletionTaskFilter = {
     status, priority,
@@ -62,6 +85,7 @@ export default function DataCompletionTasksPage() {
     group_name: groupName || undefined,
     customer_code: customerCode || undefined,
     responsible_sales: responsibleSales || undefined,
+    due_state: dueState,
     created_start: createdRange[0] ? createdRange[0].format("YYYY-MM-DD") : undefined,
     created_end: createdRange[1] ? createdRange[1].format("YYYY-MM-DD") : undefined,
     due_start: dueRange[0] ? dueRange[0].format("YYYY-MM-DD") : undefined,
@@ -76,6 +100,7 @@ export default function DataCompletionTasksPage() {
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["data-completion-tasks"] })
+    queryClient.invalidateQueries({ queryKey: ["data-completion-dashboard"] })
     queryClient.invalidateQueries({ queryKey: ["active-completion-task"] })
     queryClient.invalidateQueries({ queryKey: ["quote-analysis-overview"] })
     queryClient.invalidateQueries({ queryKey: ["quote-data-quality"] })
@@ -102,10 +127,16 @@ export default function DataCompletionTasksPage() {
     onSuccess: () => { msgApi.success("任务已取消"); invalidateAll(); setDetailTask(null) },
     onError: (e: unknown) => msgApi.error(apiErrorDetail(e, "操作失败")),
   })
+  const assignMutation = useMutation({
+    mutationFn: ({ taskId, value }: { taskId: string; value: string }) =>
+      updateDataCompletionTask(taskId, { assigned_to: value || null }),
+    onSuccess: (updated) => { msgApi.success("负责人已更新"); invalidateAll(); setDetailTask(updated) },
+    onError: (e: unknown) => msgApi.error(apiErrorDetail(e, "操作失败")),
+  })
 
   const handleReset = () => {
     setStatus(undefined); setPriority(undefined); setAssignedTo("")
-    setGroupName(""); setCustomerCode(""); setResponsibleSales("")
+    setGroupName(""); setCustomerCode(""); setResponsibleSales(""); setDueState(undefined)
     setCreatedRange([null, null]); setDueRange([null, null])
   }
 
@@ -128,7 +159,17 @@ export default function DataCompletionTasksPage() {
     { title: "负责人", dataIndex: "assigned_to", width: 100, render: v => v ?? <Text type="secondary">未指派</Text> },
     { title: "来源页面", dataIndex: "source_module", width: 140, render: v => SOURCE_MODULE_LABEL[v] ?? v },
     { title: "创建时间", dataIndex: "created_at", width: 150, render: v => new Date(v).toLocaleString("zh-CN") },
-    { title: "截止日期", dataIndex: "due_date", width: 100, render: v => v ?? <Text type="secondary">—</Text> },
+    { title: "截止日期", dataIndex: "due_date", width: 160,
+      render: (v: string | null, r: DataCompletionTask) => (
+        <Space size={4}>
+          <span>{v ?? "—"}</span>
+          {r.due_state && (
+            <Tag color={DUE_STATE_COLOR[r.due_state]} style={{ marginRight: 0 }}>
+              {dueStateText(r) ?? DUE_STATE_LABEL[r.due_state]}
+            </Tag>
+          )}
+        </Space>
+      ) },
     {
       title: "操作", key: "action", width: 220, fixed: "right",
       render: (_: unknown, r: DataCompletionTask) => (
@@ -172,6 +213,8 @@ export default function DataCompletionTasksPage() {
             onChange={e => setCustomerCode(e.target.value)} style={{ width: 120 }} />
           <Input placeholder="负责业务员" allowClear value={responsibleSales}
             onChange={e => setResponsibleSales(e.target.value)} style={{ width: 120 }} />
+          <Select placeholder="到期状态" allowClear options={DUE_STATE_OPTIONS} value={dueState}
+            onChange={setDueState} style={{ width: 120 }} />
           <RangePicker value={createdRange} placeholder={["创建日期起", "创建日期止"]}
             onChange={dates => setCreatedRange(dates ? [dates[0], dates[1]] : [null, null])} />
           <RangePicker value={dueRange} placeholder={["截止日期起", "截止日期止"]}
@@ -205,10 +248,33 @@ export default function DataCompletionTasksPage() {
               <div><Space size={4} wrap>{detailTask.missing_fields_json.map(f => <Tag key={f} color="orange">{f}</Tag>)}</Space></div>
             </div>
             <div><Text type="secondary">来源页面</Text><div>{SOURCE_MODULE_LABEL[detailTask.source_module] ?? detailTask.source_module}</div></div>
-            <div><Text type="secondary">负责人</Text><div>{detailTask.assigned_to ?? "未指派"}</div></div>
+            <div>
+              <Text type="secondary">负责人</Text>
+              {canManage ? (
+                <Space.Compact style={{ width: "100%", marginTop: 4 }}>
+                  <Input value={assignInput} placeholder="未指派" onChange={e => setAssignInput(e.target.value)} />
+                  <Button onClick={() => assignMutation.mutate({ taskId: detailTask.id, value: assignInput })}>
+                    保存
+                  </Button>
+                </Space.Compact>
+              ) : (
+                <div>{detailTask.assigned_to ?? "未指派"}</div>
+              )}
+            </div>
             <div>
               <Text type="secondary">状态</Text>
               <div><Tag color={TASK_STATUS_COLOR[detailTask.status]}>{TASK_STATUS_LABEL[detailTask.status]}</Tag></div>
+            </div>
+            <div>
+              <Text type="secondary">截止日期</Text>
+              <div>
+                <Space size={4}>
+                  <span>{detailTask.due_date ?? "—"}</span>
+                  {detailTask.due_state && (
+                    <Tag color={DUE_STATE_COLOR[detailTask.due_state]}>{dueStateText(detailTask) ?? DUE_STATE_LABEL[detailTask.due_state]}</Tag>
+                  )}
+                </Space>
+              </div>
             </div>
             <div><Text type="secondary">备注</Text><div>{detailTask.remark ?? "—"}</div></div>
             {detailTask.closed_reason && (

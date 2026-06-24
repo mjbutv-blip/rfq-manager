@@ -29,14 +29,20 @@ from app.models.inquiry_item import InquiryItem
 from app.models.user import User
 from app.services.data_completion_task_service import (
     ALL_STATUSES,
+    DUE_STATES,
     OPEN_STATUSES,
     PRIORITIES,
+    PRIORITY_RANK,
     auto_complete_check,
+    compute_due_state,
     compute_missing_fields,
+    days_until_due,
     default_assignee,
+    default_due_date,
     default_priority,
     is_open,
     now_utc,
+    overdue_days,
 )
 from app.services.operation_log_service import log_kwargs_from_user, safe_log
 
@@ -51,6 +57,8 @@ ACTION_LABELS = {
     "data_completion_task_complete": "完成补录任务",
     "data_completion_task_cancel": "取消补录任务",
     "data_completion_task_auto_complete": "自动完成补录任务",
+    "data_completion_task_due_date_set": "设置补录任务截止日期",
+    "data_completion_task_due_date_update": "修改补录任务截止日期",
 }
 
 
@@ -122,6 +130,10 @@ class DataCompletionTaskOut(BaseModel):
     responsible_sales: str | None = None
     group_name: str | None = None
     inquiry_date: date_type | None = None
+    # 计算字段（不落库），仅 open/in_progress 才有值，其余状态为 None
+    due_state: str | None = None
+    overdue_days: int | None = None
+    days_until_due: int | None = None
 
     model_config = {"from_attributes": True}
 
@@ -136,6 +148,69 @@ class DataCompletionTaskListResponse(BaseModel):
     total: int
 
 
+# ── 看板（Step 11）───────────────────────────────────────────────────────────────
+
+class DashboardSummary(BaseModel):
+    open_count: int
+    in_progress_count: int
+    completed_count: int
+    cancelled_count: int
+    high_priority_open_count: int
+    overdue_count: int
+    due_soon_count: int
+    no_due_date_count: int
+
+
+class AssigneeStat(BaseModel):
+    assigned_to: str          # 未分配的统一显示"未分配"
+    open_count: int
+    in_progress_count: int
+    overdue_count: int
+    due_soon_count: int
+    high_priority_count: int
+    completed_count: int
+
+
+class PriorityStat(BaseModel):
+    priority: str
+    open_count: int
+    in_progress_count: int
+    overdue_count: int
+    due_soon_count: int
+
+
+class StatusStat(BaseModel):
+    status: str
+    count: int
+
+
+class DashboardTaskBrief(BaseModel):
+    id: uuid.UUID
+    inquiry_id: uuid.UUID
+    inquiry_item_id: uuid.UUID
+    priority: str
+    status: str
+    inquiry_no: str | None
+    customer_short_name: str | None
+    product_name: str | None
+    style_no: str | None
+    missing_fields_json: list[str]
+    assigned_to: str | None
+    due_date: date_type | None
+    overdue_days: int | None = None
+    days_until_due: int | None = None
+
+
+class DashboardResponse(BaseModel):
+    summary: DashboardSummary
+    by_assignee: list[AssigneeStat]
+    by_priority: list[PriorityStat]
+    by_status: list[StatusStat]
+    overdue_tasks: list[DashboardTaskBrief]
+    due_soon_tasks: list[DashboardTaskBrief]
+    unassigned_tasks: list[DashboardTaskBrief]
+
+
 # ── 内部工具 ────────────────────────────────────────────────────────────────────
 
 def _names(user: User) -> set[str]:
@@ -146,6 +221,7 @@ def _names(user: User) -> set[str]:
 
 
 def _to_out(task: DataCompletionTask, inquiry: Inquiry | None, item: InquiryItem | None) -> DataCompletionTaskOut:
+    state = compute_due_state(task.status, task.due_date)
     return DataCompletionTaskOut(
         id=task.id, inquiry_id=task.inquiry_id, inquiry_item_id=task.inquiry_item_id,
         task_type=task.task_type, missing_fields_json=task.missing_fields_json,
@@ -163,6 +239,9 @@ def _to_out(task: DataCompletionTask, inquiry: Inquiry | None, item: InquiryItem
         responsible_sales=inquiry.responsible_sales if inquiry else None,
         group_name=inquiry.group_name if inquiry else None,
         inquiry_date=inquiry.inquiry_date if inquiry else None,
+        due_state=state,
+        overdue_days=overdue_days(task.due_date) if state == "overdue" else None,
+        days_until_due=days_until_due(task.due_date) if state in ("due_soon", "normal") else None,
     )
 
 
@@ -236,12 +315,15 @@ async def _create_or_reuse_task(
         if assignee_user and assignee_user.role == "viewer":
             raise HTTPException(status_code=422, detail="不能把补录任务分配给只读账号（viewer）")
 
+    # 用户没填 due_date 才用默认规则；用户已经传了就绝不覆盖。
+    final_due_date = due_date if due_date is not None else default_due_date(priority, now_utc().date())
+
     task = DataCompletionTask(
         inquiry_id=inquiry.id, inquiry_item_id=item.id,
         missing_fields_json=missing, priority=priority, status="open",
         assigned_to=assignee, assigned_by=(user.username if assignee else None),
         created_by=user.username, source_module=source_module, source_reason=source_reason,
-        remark=remark, due_date=due_date,
+        remark=remark, due_date=final_due_date,
     )
     db.add(task)
     await db.commit()
@@ -254,10 +336,11 @@ async def _create_or_reuse_task(
         target_id=str(task.id),
         inquiry_id=inquiry.id,
         inquiry_no=inquiry.inquiry_no,
-        description=f"创建补录任务（来源：{source_module}），缺失字段：{', '.join(missing)}",
+        description=f"创建补录任务（来源：{source_module}），缺失字段：{', '.join(missing)}，截止日期：{final_due_date.isoformat()}",
         after_data={
             "task_id": str(task.id), "inquiry_item_id": str(item.id), "assigned_to": assignee,
             "status": "open", "priority": priority, "missing_fields": missing,
+            "due_date": final_due_date.isoformat(),
         },
         request=request,
     )
@@ -275,6 +358,9 @@ async def list_tasks(
     group_name: str | None = Query(None),
     customer_code: str | None = Query(None),
     responsible_sales: str | None = Query(None),
+    due_state: str | None = Query(None, description="overdue | due_soon | normal | no_due_date"),
+    is_overdue: bool | None = Query(None),
+    is_unassigned: bool | None = Query(None),
     created_start: date_type | None = Query(None),
     created_end: date_type | None = Query(None),
     due_start: date_type | None = Query(None),
@@ -306,8 +392,18 @@ async def list_tasks(
         q = q.where(DataCompletionTask.due_date >= due_start)
     if due_end:
         q = q.where(DataCompletionTask.due_date <= due_end)
+    if is_unassigned is not None:
+        q = q.where(DataCompletionTask.assigned_to.is_(None) if is_unassigned else DataCompletionTask.assigned_to.is_not(None))
 
     rows = (await db.execute(q.order_by(DataCompletionTask.created_at.desc()))).scalars().all()
+
+    # due_state / is_overdue 是计算字段，不在数据库里，过滤放在取数之后做
+    # （任务量级在这个场景下不大，全取再筛选比额外维护一份冗余状态列更简单可靠）。
+    if due_state and due_state in DUE_STATES:
+        rows = [t for t in rows if compute_due_state(t.status, t.due_date) == due_state]
+    if is_overdue is not None:
+        rows = [t for t in rows if (compute_due_state(t.status, t.due_date) == "overdue") == is_overdue]
+
     total = len(rows)
     page_rows = rows[(page - 1) * page_size: page * page_size]
 
@@ -323,6 +419,150 @@ async def list_tasks(
     return DataCompletionTaskListResponse(
         items=[_to_out(t, inquiries.get(t.inquiry_id), items.get(t.inquiry_item_id)) for t in page_rows],
         total=total,
+    )
+
+
+def _brief(t: DataCompletionTask, inq: Inquiry | None, item: InquiryItem | None) -> DashboardTaskBrief:
+    state = compute_due_state(t.status, t.due_date)
+    return DashboardTaskBrief(
+        id=t.id, inquiry_id=t.inquiry_id, inquiry_item_id=t.inquiry_item_id,
+        priority=t.priority, status=t.status,
+        inquiry_no=inq.inquiry_no if inq else None,
+        customer_short_name=inq.customer_short_name if inq else None,
+        product_name=item.product_name if item else None,
+        style_no=item.style_no if item else None,
+        missing_fields_json=t.missing_fields_json,
+        assigned_to=t.assigned_to, due_date=t.due_date,
+        overdue_days=overdue_days(t.due_date) if state == "overdue" else None,
+        days_until_due=days_until_due(t.due_date) if state in ("due_soon", "normal") else None,
+    )
+
+
+@router.get("/data-completion-tasks/dashboard", response_model=DashboardResponse)
+async def dashboard(
+    db: DbDep, user: UserDep,
+    group_name: str | None = Query(None),
+    assigned_to: str | None = Query(None),
+    priority: str | None = Query(None),
+    status_filter: str | None = Query(None, alias="status"),
+    due_state: str | None = Query(None, description="overdue | due_soon | normal | no_due_date"),
+    start_date: date_type | None = Query(None, description="创建日期起始（含）"),
+    end_date: date_type | None = Query(None, description="创建日期截止（含）"),
+):
+    """
+    补录任务看板。权限范围复用 apply_inquiry_scope（与任务列表一致，按任务
+    关联的 inquiry 判断，不是只看 assigned_to）。所有筛选条件对 summary /
+    by_assignee / by_priority / by_status / 三个任务清单统一生效。
+
+    sales 角色额外限制：by_assignee 只保留自己的那一行，不暴露同组其他人
+    的工作量分布（"看板只显示自己相关的任务；不显示其他人的任务负载情况"）；
+    overdue/due_soon/unassigned 清单本身已经被 apply_inquiry_scope 限定在
+    sales 自己负责/协助的询单范围内，不需要再额外过滤。
+    """
+    from app.core.permissions import apply_inquiry_scope
+
+    q = select(DataCompletionTask).join(Inquiry, DataCompletionTask.inquiry_id == Inquiry.id)
+    q = apply_inquiry_scope(q, user)
+
+    if group_name:
+        q = q.where(Inquiry.group_name == group_name)
+    if assigned_to:
+        q = q.where(DataCompletionTask.assigned_to == assigned_to)
+    if priority:
+        q = q.where(DataCompletionTask.priority == priority)
+    if status_filter:
+        q = q.where(DataCompletionTask.status == status_filter)
+    if start_date:
+        q = q.where(DataCompletionTask.created_at >= start_date)
+    if end_date:
+        q = q.where(DataCompletionTask.created_at <= end_date)
+
+    tasks = list((await db.execute(q)).scalars().all())
+    if due_state and due_state in DUE_STATES:
+        tasks = [t for t in tasks if compute_due_state(t.status, t.due_date) == due_state]
+
+    inq_ids = {t.inquiry_id for t in tasks}
+    item_ids = {t.inquiry_item_id for t in tasks}
+    inquiries: dict[Any, Inquiry] = {}
+    items: dict[Any, InquiryItem] = {}
+    if inq_ids:
+        inquiries = {i.id: i for i in (await db.execute(select(Inquiry).where(Inquiry.id.in_(inq_ids)))).scalars().all()}
+    if item_ids:
+        items = {i.id: i for i in (await db.execute(select(InquiryItem).where(InquiryItem.id.in_(item_ids)))).scalars().all()}
+
+    states = {t.id: compute_due_state(t.status, t.due_date) for t in tasks}
+
+    # ── summary ──────────────────────────────────────────────────────────────
+    summary = DashboardSummary(
+        open_count=sum(1 for t in tasks if t.status == "open"),
+        in_progress_count=sum(1 for t in tasks if t.status == "in_progress"),
+        completed_count=sum(1 for t in tasks if t.status == "completed"),
+        cancelled_count=sum(1 for t in tasks if t.status == "cancelled"),
+        high_priority_open_count=sum(1 for t in tasks if t.priority == "high" and t.status in OPEN_STATUSES),
+        overdue_count=sum(1 for t in tasks if states[t.id] == "overdue"),
+        due_soon_count=sum(1 for t in tasks if states[t.id] == "due_soon"),
+        no_due_date_count=sum(1 for t in tasks if states[t.id] == "no_due_date"),
+    )
+
+    # ── by_assignee ──────────────────────────────────────────────────────────
+    assignee_groups: dict[str, list[DataCompletionTask]] = {}
+    for t in tasks:
+        key = t.assigned_to or "未分配"
+        assignee_groups.setdefault(key, []).append(t)
+
+    by_assignee = [
+        AssigneeStat(
+            assigned_to=name,
+            open_count=sum(1 for t in ts if t.status == "open"),
+            in_progress_count=sum(1 for t in ts if t.status == "in_progress"),
+            overdue_count=sum(1 for t in ts if states[t.id] == "overdue"),
+            due_soon_count=sum(1 for t in ts if states[t.id] == "due_soon"),
+            high_priority_count=sum(1 for t in ts if t.priority == "high" and t.status in OPEN_STATUSES),
+            completed_count=sum(1 for t in ts if t.status == "completed"),
+        )
+        for name, ts in assignee_groups.items()
+    ]
+    if user.role == "sales":
+        own_names = _names(user)
+        by_assignee = [a for a in by_assignee if a.assigned_to in own_names]
+    by_assignee.sort(key=lambda a: -(a.open_count + a.in_progress_count))
+
+    # ── by_priority ──────────────────────────────────────────────────────────
+    by_priority = []
+    for p in ("high", "medium", "low"):
+        ts = [t for t in tasks if t.priority == p]
+        by_priority.append(PriorityStat(
+            priority=p,
+            open_count=sum(1 for t in ts if t.status == "open"),
+            in_progress_count=sum(1 for t in ts if t.status == "in_progress"),
+            overdue_count=sum(1 for t in ts if states[t.id] == "overdue"),
+            due_soon_count=sum(1 for t in ts if states[t.id] == "due_soon"),
+        ))
+
+    # ── by_status ────────────────────────────────────────────────────────────
+    by_status = [
+        StatusStat(status=s, count=sum(1 for t in tasks if t.status == s))
+        for s in ("open", "in_progress", "completed", "cancelled")
+    ]
+
+    # ── 逾期 / 即将到期 / 未分配 清单 ────────────────────────────────────────────
+    overdue_list = [t for t in tasks if states[t.id] == "overdue"]
+    overdue_list.sort(key=lambda t: (-PRIORITY_RANK.get(t.priority, 0), -(overdue_days(t.due_date) or 0)))
+
+    due_soon_list = [t for t in tasks if states[t.id] == "due_soon"]
+    due_soon_list.sort(key=lambda t: ((days_until_due(t.due_date) or 0), -PRIORITY_RANK.get(t.priority, 0)))
+
+    unassigned_list = [t for t in tasks if not t.assigned_to and t.status in OPEN_STATUSES]
+    unassigned_list.sort(key=lambda t: (-PRIORITY_RANK.get(t.priority, 0), t.created_at))
+
+    return DashboardResponse(
+        summary=summary,
+        by_assignee=by_assignee,
+        by_priority=by_priority,
+        by_status=by_status,
+        overdue_tasks=[_brief(t, inquiries.get(t.inquiry_id), items.get(t.inquiry_item_id)) for t in overdue_list],
+        due_soon_tasks=[_brief(t, inquiries.get(t.inquiry_id), items.get(t.inquiry_item_id)) for t in due_soon_list],
+        unassigned_tasks=[_brief(t, inquiries.get(t.inquiry_id), items.get(t.inquiry_item_id)) for t in unassigned_list],
     )
 
 
@@ -436,6 +676,8 @@ async def update_task(task_id: uuid.UUID, body: DataCompletionTaskUpdate, db: Db
 
     before_status = task.status
     before_assigned = task.assigned_to
+    before_due_date = task.due_date
+    due_date_changed = "due_date" in payload and payload["due_date"] != before_due_date
 
     for k, v in payload.items():
         setattr(task, k, v)
@@ -450,6 +692,8 @@ async def update_task(task_id: uuid.UUID, body: DataCompletionTaskUpdate, db: Db
         action_type = "data_completion_task_assign"
     elif "status" in payload and payload["status"] == "in_progress" and before_status != "in_progress":
         action_type = "data_completion_task_start"
+    elif due_date_changed:
+        action_type = "data_completion_task_due_date_set" if before_due_date is None else "data_completion_task_due_date_update"
 
     await safe_log(
         **log_kwargs_from_user(user),
@@ -459,8 +703,14 @@ async def update_task(task_id: uuid.UUID, body: DataCompletionTaskUpdate, db: Db
         inquiry_id=inquiry.id,
         inquiry_no=inquiry.inquiry_no,
         description=ACTION_LABELS[action_type],
-        before_data={"status": before_status, "assigned_to": before_assigned},
-        after_data={"status": task.status, "assigned_to": task.assigned_to, "priority": task.priority},
+        before_data={
+            "status": before_status, "assigned_to": before_assigned,
+            "due_date": before_due_date.isoformat() if before_due_date else None,
+        },
+        after_data={
+            "status": task.status, "assigned_to": task.assigned_to, "priority": task.priority,
+            "due_date": task.due_date.isoformat() if task.due_date else None,
+        },
         request=request,
     )
     return _to_out(task, inquiry, item)
