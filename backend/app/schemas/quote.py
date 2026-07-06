@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 class QuoteItemBase(BaseModel):
     inquiry_id: uuid.UUID
+    quote_type: str = "domestic"
     quote_round: int = 1
     order_quantity: int | None = None
     calc_quantity: int | None = None

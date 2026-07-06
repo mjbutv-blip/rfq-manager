@@ -19,7 +19,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import UserDep, apply_inquiry_scope, can_edit_inquiry, can_view_inquiry
@@ -35,6 +35,7 @@ router = APIRouter(tags=["factory-quotes"])
 
 DEFAULT_CURRENCY = "USD"
 DEFAULT_PRICE_UNIT = "件"
+DEFAULT_QUOTE_TYPE = "domestic"
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
@@ -42,6 +43,7 @@ DEFAULT_PRICE_UNIT = "件"
 class FactoryQuoteCreate(BaseModel):
     factory_id: uuid.UUID | None = None
     factory_name: str | None = None
+    quote_type: str = DEFAULT_QUOTE_TYPE
     quote_round: int | None = Field(None, ge=1)
     factory_price: Decimal = Field(..., ge=0)
     currency: str = DEFAULT_CURRENCY
@@ -58,6 +60,7 @@ class FactoryQuoteCreate(BaseModel):
 class FactoryQuoteUpdate(BaseModel):
     factory_id: uuid.UUID | None = None
     factory_name: str | None = None
+    quote_type: str | None = None
     quote_round: int | None = Field(None, ge=1)
     factory_price: Decimal | None = Field(None, ge=0)
     currency: str | None = None
@@ -68,10 +71,13 @@ class FactoryQuoteUpdate(BaseModel):
 def _snapshot(r: FactoryQuoteRecord) -> dict[str, Any]:
     return {
         "factory_name": r.factory_name,
+        "quote_type": r.quote_type or DEFAULT_QUOTE_TYPE,
         "quote_round": r.quote_round,
         "factory_price": float(r.factory_price) if r.factory_price is not None else None,
         "currency": r.currency,
         "price_unit": r.price_unit,
+        "source_sheet": r.source_sheet,
+        "source_cell": r.source_cell,
         "remark": r.remark,
     }
 
@@ -84,6 +90,7 @@ def _to_dict(r: FactoryQuoteRecord) -> dict[str, Any]:
         "factory_id": str(r.factory_id) if r.factory_id else None,
         "factory_name": r.factory_name,
         "has_factory_profile": r.factory_id is not None,
+        "quote_type": r.quote_type or DEFAULT_QUOTE_TYPE,
         "quote_round": r.quote_round,
         "factory_price": float(r.factory_price) if r.factory_price is not None else None,
         "currency": r.currency,
@@ -167,11 +174,13 @@ async def _resolve_factory(db: AsyncSession, factory_id: uuid.UUID | None, facto
 async def _check_duplicate_round(
     db: AsyncSession, inquiry_id: uuid.UUID, quote_round: int,
     factory_id: uuid.UUID | None, factory_name: str | None,
+    quote_type: str = DEFAULT_QUOTE_TYPE,
     exclude_id: uuid.UUID | None = None,
 ) -> None:
     q = select(FactoryQuoteRecord).where(
         FactoryQuoteRecord.inquiry_id == inquiry_id,
         FactoryQuoteRecord.quote_round == quote_round,
+        func.coalesce(FactoryQuoteRecord.quote_type, DEFAULT_QUOTE_TYPE) == quote_type,
     )
     rows = (await db.execute(q)).scalars().all()
     for r in rows:
@@ -180,7 +189,7 @@ async def _check_duplicate_round(
         if _is_same_factory(r, factory_id, factory_name):
             raise HTTPException(
                 status_code=409,
-                detail=f"第 {quote_round} 轮已有「{r.factory_name}」的报价，请编辑该卡片，不要新增重复记录",
+                detail=f"{quote_type} 第 {quote_round} 轮已有「{r.factory_name}」的报价，请编辑该卡片，不要新增重复记录",
             )
 
 
@@ -233,7 +242,8 @@ async def create_inquiry_factory_quote(
         )).scalars().all()
         quote_round = (max(max_round) if max_round else 0) + 1
 
-    await _check_duplicate_round(db, inquiry_id, quote_round, factory_id, factory_name)
+    quote_type = body.quote_type or DEFAULT_QUOTE_TYPE
+    await _check_duplicate_round(db, inquiry_id, quote_round, factory_id, factory_name, quote_type)
 
     record = FactoryQuoteRecord(
         id=uuid.uuid4(),
@@ -241,6 +251,7 @@ async def create_inquiry_factory_quote(
         inquiry_no=inq.inquiry_no,
         factory_id=factory_id,
         factory_name=factory_name,
+        quote_type=quote_type,
         quote_round=quote_round,
         factory_price=body.factory_price,
         currency=body.currency or DEFAULT_CURRENCY,
@@ -261,7 +272,7 @@ async def create_inquiry_factory_quote(
         target_id=str(record.id),
         inquiry_id=inquiry_id,
         inquiry_no=inq.inquiry_no,
-        description=f"新增工厂报价：第{quote_round}轮 / {factory_name} / {body.factory_price} {record.currency}/{record.price_unit}",
+        description=f"新增工厂报价：{quote_type} 第{quote_round}轮 / {factory_name} / {body.factory_price} {record.currency}/{record.price_unit}",
         after_data=_snapshot(record),
         request=request,
     )
@@ -301,12 +312,19 @@ async def update_factory_quote(quote_id: uuid.UUID, body: FactoryQuoteUpdate, db
     data.pop("factory_name", None)
 
     quote_round = data.pop("quote_round", record.quote_round)
+    quote_type = data.pop("quote_type", record.quote_type or DEFAULT_QUOTE_TYPE) or DEFAULT_QUOTE_TYPE
 
-    if record.inquiry_id and (quote_round != record.quote_round or factory_id != record.factory_id or factory_name != record.factory_name):
-        await _check_duplicate_round(db, record.inquiry_id, quote_round, factory_id, factory_name, exclude_id=record.id)
+    if record.inquiry_id and (
+        quote_round != record.quote_round
+        or quote_type != (record.quote_type or DEFAULT_QUOTE_TYPE)
+        or factory_id != record.factory_id
+        or factory_name != record.factory_name
+    ):
+        await _check_duplicate_round(db, record.inquiry_id, quote_round, factory_id, factory_name, quote_type, exclude_id=record.id)
 
     record.factory_id = factory_id
     record.factory_name = factory_name
+    record.quote_type = quote_type
     record.quote_round = quote_round
     for k, v in data.items():
         setattr(record, k, v)
@@ -321,7 +339,7 @@ async def update_factory_quote(quote_id: uuid.UUID, body: FactoryQuoteUpdate, db
         target_id=str(record.id),
         inquiry_id=record.inquiry_id,
         inquiry_no=record.inquiry_no,
-        description=f"编辑工厂报价：第{record.quote_round}轮 / {record.factory_name}",
+        description=f"编辑工厂报价：{record.quote_type or DEFAULT_QUOTE_TYPE} 第{record.quote_round}轮 / {record.factory_name}",
         before_data=before,
         after_data=_snapshot(record),
         request=request,

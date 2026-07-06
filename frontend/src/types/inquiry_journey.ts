@@ -6,6 +6,7 @@ export interface JourneyFactoryQuoteBrief {
   factory_id: string | null
   factory_name: string | null
   factory_price: number | null
+  quote_type: "domestic" | "overseas" | string
   currency: string | null
   price_unit: string | null
   remark: string | null
@@ -27,6 +28,7 @@ export interface JourneyPriceAnalysis {
 }
 
 export interface JourneyRound {
+  quote_type: "domestic" | "overseas" | string
   quote_round: number
   factory1: JourneyFactoryQuoteBrief | null
   factory2: JourneyFactoryQuoteBrief | null

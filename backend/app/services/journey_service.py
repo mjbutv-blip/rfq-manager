@@ -18,6 +18,7 @@ def _brief(r: FactoryQuoteRecord) -> dict[str, Any]:
         "factory_id": str(r.factory_id) if r.factory_id else None,
         "factory_name": r.factory_name,
         "factory_price": float(r.factory_price) if r.factory_price is not None else None,
+        "quote_type": r.quote_type or "domestic",
         "currency": r.currency,
         "price_unit": r.price_unit,
         "remark": r.remark,
@@ -77,7 +78,7 @@ def compute_price_analysis(cards: list[FactoryQuoteRecord]) -> dict[str, Any]:
     }
 
 
-def build_round_view(quote_round: int, cards: list[FactoryQuoteRecord]) -> dict[str, Any]:
+def build_round_view(quote_type: str, quote_round: int, cards: list[FactoryQuoteRecord]) -> dict[str, Any]:
     """
     工厂1/工厂2 只是"按录入顺序展示"，不代表最低价或推荐工厂——
     排序规则：created_at 升序 → factory_name 升序。
@@ -89,6 +90,7 @@ def build_round_view(quote_round: int, cards: list[FactoryQuoteRecord]) -> dict[
     others = sorted_cards[2:]
 
     return {
+        "quote_type": quote_type,
         "quote_round": quote_round,
         "factory1": _brief(factory1) if factory1 else None,
         "factory2": _brief(factory2) if factory2 else None,
@@ -98,13 +100,17 @@ def build_round_view(quote_round: int, cards: list[FactoryQuoteRecord]) -> dict[
 
 
 def build_rounds(all_quotes: list[FactoryQuoteRecord]) -> list[dict[str, Any]]:
-    by_round: dict[int, list[FactoryQuoteRecord]] = {}
+    by_round: dict[tuple[str, int], list[FactoryQuoteRecord]] = {}
     for q in all_quotes:
         if q.quote_round is None:
             continue
-        by_round.setdefault(q.quote_round, []).append(q)
+        by_round.setdefault((q.quote_type or "domestic", q.quote_round), []).append(q)
 
-    return [build_round_view(round_no, cards) for round_no, cards in sorted(by_round.items())]
+    order = {"domestic": 0, "overseas": 1}
+    return [
+        build_round_view(quote_type, round_no, cards)
+        for (quote_type, round_no), cards in sorted(by_round.items(), key=lambda x: (order.get(x[0][0], 9), x[0][1]))
+    ]
 
 
 def find_applicable_factory_quote(all_quotes: list[FactoryQuoteRecord], factory_id) -> FactoryQuoteRecord | None:

@@ -27,6 +27,8 @@ import DashboardPage       from "@/pages/DashboardPage"
 import InquiryTablePage    from "@/pages/InquiryTable"
 import InquiryDetailPage   from "@/pages/InquiryDetail"
 import InquiryImportPage   from "@/pages/InquiryImportPage"
+import BaseInquiryImportPage from "@/pages/BaseInquiryImportPage"
+import InquiryJourneyImportPage from "@/pages/InquiryJourneyImportPage"
 import AnalyticsPage       from "@/pages/AnalyticsPage"
 import QuoteDataQualityPage from "@/pages/QuoteDataQualityPage"
 import CustomerCategoryStylesPage from "@/pages/CustomerCategoryStylesPage"
@@ -89,6 +91,10 @@ function AppLayout() {
 
   const selectedKey = pathname.startsWith("/import")
     ? "import"
+    : pathname.startsWith("/base-inquiry-import")
+    ? "base-inquiry-import"
+    : pathname.startsWith("/inquiry-journey-import")
+    ? "inquiry-journey-import"
     : pathname.startsWith("/quote-data-quality")
     ? "quote-data-quality"
     : pathname.startsWith("/customer-category-styles")
@@ -171,6 +177,12 @@ function AppLayout() {
     canImport
       ? { key: "import", icon: <UploadOutlined />, label: "导入询单", onClick: () => navigate("/import") }
       : null,
+    canImport
+      ? { key: "base-inquiry-import", icon: <UploadOutlined />, label: "基础询单导入", onClick: () => navigate("/base-inquiry-import") }
+      : null,
+    canImport
+      ? { key: "inquiry-journey-import", icon: <UploadOutlined />, label: "来龙去脉导入", onClick: () => navigate("/inquiry-journey-import") }
+      : null,
     { key: "analytics", icon: <BarChartOutlined />, label: "数据分析", onClick: () => navigate("/analytics") },
     { key: "report-analysis-group", icon: <FileSearchOutlined />, label: "报价资料分析", children: reportAnalysisChildren },
     { key: "risk-trace-group", icon: <BellOutlined />, label: "风险与追溯", children: riskTraceChildren.filter(Boolean) as MenuItem[] },
@@ -222,6 +234,8 @@ function AppLayout() {
           <Route path="/inquiry/:id/journey" element={<InquiryJourneyPage />} />
 
           <Route path="/import" element={<InquiryImportPage />} />
+          <Route path="/base-inquiry-import" element={<BaseInquiryImportPage />} />
+          <Route path="/inquiry-journey-import" element={<InquiryJourneyImportPage />} />
 
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/quote-data-quality" element={<QuoteDataQualityPage />} />

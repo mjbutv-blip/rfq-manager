@@ -11,7 +11,7 @@ from app.database import Base
 class QuoteItem(Base):
     __tablename__ = "quote_items"
     __table_args__ = (
-        UniqueConstraint("inquiry_id", "quote_round", name="uq_quote_items_inquiry_round"),
+        UniqueConstraint("inquiry_id", "quote_type", "quote_round", name="uq_quote_items_inquiry_type_round"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -23,6 +23,7 @@ class QuoteItem(Base):
         nullable=False,
         index=True,
     )
+    quote_type: Mapped[str] = mapped_column(Text, nullable=False, default="domestic", index=True)
     quote_round: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=1)
 
     # 基本参数

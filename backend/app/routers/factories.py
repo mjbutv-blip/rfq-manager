@@ -166,6 +166,7 @@ def _qr_to_dict(r: FactoryQuoteRecord) -> dict[str, Any]:
         "id":               str(r.id),
         "factory_id":       str(r.factory_id),
         "factory_name":     r.factory_name,
+        "quote_type":       r.quote_type,
         "inquiry_id":       str(r.inquiry_id) if r.inquiry_id else None,
         "inquiry_no":       r.inquiry_no,
         "product_category": r.product_category,

@@ -5,6 +5,7 @@ from app.models.inquiry import Inquiry
 from app.models.inquiry_item import InquiryItem
 from app.models.inquiry_item_process import InquiryItemProcess
 from app.models.inquiry_item_size import InquiryItemSize
+from app.models.quote import QuoteItem
 from app.models.import_batch import ImportBatch
 from app.models.import_row import ImportRow
 from app.models.inquiry_warning import InquiryWarning
@@ -25,6 +26,7 @@ __all__ = [
     "InquiryItem",
     "InquiryItemProcess",
     "InquiryItemSize",
+    "QuoteItem",
     "ImportBatch",
     "ImportRow",
     "InquiryWarning",

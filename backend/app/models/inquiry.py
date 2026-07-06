@@ -66,3 +66,7 @@ class Inquiry(Base):
         "InquiryItem", back_populates="inquiry",
         cascade="all, delete-orphan", lazy="noload",
     )
+    quote_items: Mapped[list["QuoteItem"]] = relationship(  # noqa: F821
+        "QuoteItem", back_populates="inquiry",
+        cascade="all, delete-orphan", lazy="noload",
+    )

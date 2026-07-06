@@ -36,6 +36,10 @@ function pct(v: number | null | undefined): string {
   return v == null ? "—" : `${v}%`
 }
 
+function quoteTypeName(v: string | null | undefined): string {
+  return v === "overseas" ? "海外" : "国内"
+}
+
 // ── 通用：分区表头条 ────────────────────────────────────────────────────────────
 
 function BandRow({ bands }: { bands: { label: string; color: string; span: number }[] }) {
@@ -172,7 +176,7 @@ function RoundBlock({ round }: { round: JourneyRound }) {
   return (
     <div style={{ marginBottom: 16, border: "1px solid #d9d9d9" }}>
       <div style={{ background: "#262626", color: "#fff", padding: "4px 10px", fontSize: 13, fontWeight: 600 }}>
-        第 {round.quote_round} 轮报价
+        {quoteTypeName(round.quote_type)}第 {round.quote_round} 轮报价
       </div>
       <BandRow bands={[
         { label: "工厂报价（含税含运费/元/件）", color: C_ORANGE, span: 2 },

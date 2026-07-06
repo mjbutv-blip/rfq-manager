@@ -21,8 +21,12 @@ class FactoryQuoteRecord(Base):
 
     # ── 按轮次填报的工厂报价卡片专用字段（不影响导入快照行，那些行 quote_round 始终为空）──
     quote_round: Mapped[int | None] = mapped_column(Integer, index=True)
+    # domestic / overseas. 为空的历史记录按 domestic 兼容展示。
+    quote_type: Mapped[str | None] = mapped_column(Text, index=True)
     currency: Mapped[str | None] = mapped_column(Text)
     price_unit: Mapped[str | None] = mapped_column(Text)
+    source_sheet: Mapped[str | None] = mapped_column(Text)
+    source_cell: Mapped[str | None] = mapped_column(Text)
     quoted_by: Mapped[str | None] = mapped_column(Text)
     quoted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
