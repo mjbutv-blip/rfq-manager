@@ -117,9 +117,8 @@ def _is_empty(v: Any) -> bool:
     return False
 
 
-def _fill_empty_inquiry_fields(inquiry: Inquiry, row: BaseImportRow, customer: Customer | None = None) -> dict[str, Any]:
-    updates: dict[str, Any] = {}
-    candidates = (
+def _inquiry_fill_candidates(row: BaseImportRow, customer: Customer | None = None) -> tuple[tuple[str, Any], ...]:
+    return (
         ("customer_code", row.customer_code),
         ("customer_short_name", customer.customer_short_name if customer else None),
         ("customer_order_no", row.customer_order_no),
@@ -132,6 +131,19 @@ def _fill_empty_inquiry_fields(inquiry: Inquiry, row: BaseImportRow, customer: C
         ("quantity", row.quantity),
         ("remark", row.notes),
     )
+
+
+def _fillable_inquiry_fields(inquiry: Inquiry, row: BaseImportRow, customer: Customer | None = None) -> list[str]:
+    return [
+        field
+        for field, value in _inquiry_fill_candidates(row, customer)
+        if value is not None and _is_empty(getattr(inquiry, field, None))
+    ]
+
+
+def _fill_empty_inquiry_fields(inquiry: Inquiry, row: BaseImportRow, customer: Customer | None = None) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    candidates = _inquiry_fill_candidates(row, customer)
     for field, value in candidates:
         if value is not None and _is_empty(getattr(inquiry, field, None)):
             setattr(inquiry, field, value)
@@ -348,6 +360,7 @@ async def preview_base_inquiry_import(
         "duplicate_items": 0,
         "customer_unmatched": 0,
         "item_identity_uncertain": 0,
+        "fillable_inquiry_fields": 0,
         "failed": 0,
         "importable_rows": 0,
     }
@@ -358,6 +371,7 @@ async def preview_base_inquiry_import(
         flags: list[str] = []
         errors: list[str] = []
         status = "new_inquiry"
+        fillable_inquiry_fields: list[str] = []
         if not row.inquiry_no:
             status = "failed"
             errors.append("Excel 询单号为空")
@@ -368,6 +382,7 @@ async def preview_base_inquiry_import(
                 "flags": flags,
                 "errors": errors,
                 "item_identity_key": None,
+                "fillable_inquiry_fields": fillable_inquiry_fields,
                 "customer_matched": False,
                 "customer_will_create": False,
                 "can_confirm": False,
@@ -383,6 +398,10 @@ async def preview_base_inquiry_import(
             if not can_write_inquiry:
                 status = "failed"
                 errors.append("无权限向该询单追加款式")
+            else:
+                matched_customer = customers.get(row.customer_code or "") if row.customer_code else None
+                fillable_inquiry_fields = _fillable_inquiry_fields(existing_inquiry, row, matched_customer)
+                summary["fillable_inquiry_fields"] += len(fillable_inquiry_fields)
         elif row.inquiry_no in seen_new_inquiries:
             status = "new_item_for_existing_inquiry"
         else:
@@ -412,7 +431,7 @@ async def preview_base_inquiry_import(
             if status != "failed":
                 summary["new_items"] += 1
 
-        can_confirm = status not in {"failed", "duplicate_item"}
+        can_confirm = status != "failed" and (status != "duplicate_item" or bool(fillable_inquiry_fields))
         if can_confirm:
             summary["importable_rows"] += 1
 
@@ -422,6 +441,7 @@ async def preview_base_inquiry_import(
             "flags": flags,
             "errors": errors,
             "item_identity_key": f"{key_type}:{key}" if key else key_type,
+            "fillable_inquiry_fields": fillable_inquiry_fields,
             "customer_matched": bool(row.customer_code and row.customer_code in customers),
             "customer_will_create": customer_will_create,
             "can_confirm": can_confirm,

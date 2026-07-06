@@ -78,6 +78,7 @@ export default function BaseInquiryImportPage() {
     { title: "系列", dataIndex: "series_name", width: 120, render: val },
     { title: "款号/身份", dataIndex: "item_identity_key", width: 160, ellipsis: true, render: val },
     { title: "询单数量", dataIndex: "quantity", width: 100, align: "right", render: val },
+    { title: "可补主表字段", dataIndex: "fillable_inquiry_fields", width: 150, render: fields => fields?.length ? fields.join(", ") : "—" },
     { title: "可导入", dataIndex: "can_confirm", width: 90, render: v => v ? <Tag color="success">是</Tag> : <Tag>否</Tag> },
   ]
 
@@ -183,6 +184,7 @@ export default function BaseInquiryImportPage() {
             <Col span={3}><Statistic title="重复款式" value={preview.summary.duplicate_items} /></Col>
             <Col span={3}><Statistic title="客户未匹配" value={preview.summary.customer_unmatched} valueStyle={{ color: "#d48806" }} /></Col>
             <Col span={3}><Statistic title="待确认款式" value={preview.summary.item_identity_uncertain} valueStyle={{ color: "#d46b08" }} /></Col>
+            <Col span={3}><Statistic title="可补主表字段" value={preview.summary.fillable_inquiry_fields} valueStyle={{ color: "#1677ff" }} /></Col>
             <Col span={3}><Statistic title="失败" value={preview.summary.failed} valueStyle={{ color: "#ff4d4f" }} /></Col>
             <Col span={3}><Statistic title="可导入" value={preview.summary.importable_rows} valueStyle={{ color: "#52c41a" }} /></Col>
           </Row>

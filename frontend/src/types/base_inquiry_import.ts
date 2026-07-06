@@ -22,6 +22,7 @@ export interface BaseInquiryImportSummary {
   duplicate_items: number
   customer_unmatched: number
   item_identity_uncertain: number
+  fillable_inquiry_fields: number
   failed: number
   importable_rows: number
 }
@@ -45,6 +46,7 @@ export interface BaseInquiryImportRow {
   flags: BaseInquiryImportStatus[]
   errors: string[]
   item_identity_key: string | null
+  fillable_inquiry_fields: string[]
   customer_matched: boolean
   customer_will_create: boolean
   can_confirm: boolean
