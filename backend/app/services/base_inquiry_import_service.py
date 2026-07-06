@@ -51,7 +51,7 @@ def _clean_optional(v: Any) -> str | None:
     s = _clean_str(v)
     if not s:
         return None
-    if s in {"0", "0.0", "—", "-", "--", "——"}:
+    if s in {"0", "0.0", "—", "-", "--", "——", "———", "————", "_", "__", "___", "/", "／"}:
         return None
     return s
 
@@ -76,10 +76,13 @@ def _to_int(v: Any) -> int | None:
     if isinstance(v, float):
         return int(v)
     s = str(v)
-    m = re.search(r"\d[\d,]*", s)
-    if not m:
+    total_match = re.search(r"共\s*(\d[\d,]*)\s*件", s)
+    if total_match:
+        return int(total_match.group(1).replace(",", ""))
+    matches = [int(m.replace(",", "")) for m in re.findall(r"\d[\d,]*", s)]
+    if not matches:
         return None
-    return int(m.group(0).replace(",", ""))
+    return max(matches)
 
 
 def _to_date(v: Any) -> date | None:
@@ -104,6 +107,36 @@ def _json_value(v: Any) -> Any:
     if isinstance(v, uuid.UUID):
         return str(v)
     return v
+
+
+def _is_empty(v: Any) -> bool:
+    if v is None:
+        return True
+    if isinstance(v, str):
+        return not v.strip()
+    return False
+
+
+def _fill_empty_inquiry_fields(inquiry: Inquiry, row: BaseImportRow, customer: Customer | None = None) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    candidates = (
+        ("customer_code", row.customer_code),
+        ("customer_short_name", customer.customer_short_name if customer else None),
+        ("customer_order_no", row.customer_order_no),
+        ("season", row.season),
+        ("order_status", row.order_status),
+        ("inquiry_date", row.inquiry_date),
+        ("product_category", row.product_category),
+        ("product_name", row.product_name),
+        ("series_name", row.series_name),
+        ("quantity", row.quantity),
+        ("remark", row.notes),
+    )
+    for field, value in candidates:
+        if value is not None and _is_empty(getattr(inquiry, field, None)):
+            setattr(inquiry, field, value)
+            updates[field] = _json_value(value)
+    return updates
 
 
 def _header_map(ws) -> dict[str, int]:
@@ -443,6 +476,7 @@ async def confirm_base_inquiry_import(
     summary = {
         "created_inquiries": 0,
         "created_items": 0,
+        "updated_inquiry_fields": 0,
         "existing_inquiries": 0,
         "duplicate_items_skipped": 0,
         "customer_records_created": 0,
@@ -477,8 +511,6 @@ async def confirm_base_inquiry_import(
 
         if status == "failed":
             summary["write_failed_rows"] += 1
-        elif status == "duplicate_item":
-            summary["duplicate_items_skipped"] += 1
         else:
             try:
                 async with db.begin_nested():
@@ -495,6 +527,25 @@ async def confirm_base_inquiry_import(
                             summary["existing_inquiries"] += 1
                         if not can_edit_inquiry(inquiry, user):
                             raise PermissionError("无权限向该询单追加款式")
+                        updates = _fill_empty_inquiry_fields(inquiry, row, customer)
+                        if updates:
+                            summary["updated_inquiry_fields"] += len(updates)
+                            await _log_in_session(
+                                db,
+                                user,
+                                action_type="base_inquiry_import_field_fill_from_excel",
+                                target_type="inquiry",
+                                target_id=str(inquiry.id),
+                                inquiry_id=inquiry.id,
+                                inquiry_no=inquiry.inquiry_no,
+                                description="基础询单导入补齐询单主表空字段",
+                                after_data={
+                                    "excel_file": file_name,
+                                    "sheet": row.source_sheet,
+                                    "row": row.row_number,
+                                    "updated_fields": updates,
+                                },
+                            )
                     else:
                         inquiry = Inquiry(
                             inquiry_no=row.inquiry_no or "",
@@ -504,6 +555,10 @@ async def confirm_base_inquiry_import(
                             season=row.season,
                             order_status=row.order_status,
                             inquiry_date=row.inquiry_date,
+                            product_category=row.product_category,
+                            product_name=row.product_name,
+                            series_name=row.series_name,
+                            quantity=row.quantity,
                             group_name=getattr(user, "group_name", None) if getattr(user, "role", None) == "group_leader" else None,
                             responsible_sales=None,
                             remark=row.notes,
@@ -525,63 +580,77 @@ async def confirm_base_inquiry_import(
                             after_data={**_row_payload(row), "excel_file": file_name},
                         )
 
-                    key_type, key, uncertain = _item_key(row)
-                    if uncertain:
-                        summary["uncertain_item_rows"] += 1
+                    if status == "duplicate_item":
+                        summary["duplicate_items_skipped"] += 1
+                        import_status = "skipped_duplicate_item"
+                        if not row.customer_code:
+                            summary["customer_unmatched_rows"] += 1
+                        skip_item = True
                     else:
-                        current_keys = created_item_keys.setdefault(row.inquiry_no or "", set())
-                        if (key_type, key) in current_keys:
-                            summary["duplicate_items_skipped"] += 1
-                            import_status = "duplicate_item"
-                            raise RuntimeError("同批次重复款式，已跳过")
-                        current_keys.add((key_type, key))
+                        skip_item = False
 
-                    item = InquiryItem(
-                        inquiry_id=inquiry.id,
-                        inquiry_no=inquiry.inquiry_no,
-                        product_name=row.product_name,
-                        product_category=row.product_category,
-                        series_name=row.series_name,
-                        quantity=row.quantity,
-                        style_no=row.style_no,
-                        order_status=row.order_status,
-                        remark=f"来源：{row.source_sheet}!{row.row_number}",
-                        extra_data={
-                            "source_file": file_name,
-                            "source_sheet": row.source_sheet,
-                            "source_row": row.row_number,
-                            "item_identity_key": row_data.get("item_identity_key"),
-                            "item_identity_uncertain": uncertain,
-                        },
-                    )
-                    db.add(item)
-                    await db.flush()
-                    summary["created_items"] += 1
-                    if not row.customer_code:
-                        summary["customer_unmatched_rows"] += 1
+                    if not skip_item:
+                        key_type, key, uncertain = _item_key(row)
+                        if uncertain:
+                            summary["uncertain_item_rows"] += 1
+                        else:
+                            current_keys = created_item_keys.setdefault(row.inquiry_no or "", set())
+                            if (key_type, key) in current_keys:
+                                summary["duplicate_items_skipped"] += 1
+                                import_status = "skipped_duplicate_item"
+                                skip_item = True
+                            else:
+                                current_keys.add((key_type, key))
+                    else:
+                        key_type, key, uncertain = _item_key(row)
+
+                    if not skip_item:
+                        item = InquiryItem(
+                            inquiry_id=inquiry.id,
+                            inquiry_no=inquiry.inquiry_no,
+                            product_name=row.product_name,
+                            product_category=row.product_category,
+                            series_name=row.series_name,
+                            quantity=row.quantity,
+                            style_no=row.style_no,
+                            order_status=row.order_status,
+                            remark=f"来源：{row.source_sheet}!{row.row_number}",
+                            extra_data={
+                                "source_file": file_name,
+                                "source_sheet": row.source_sheet,
+                                "source_row": row.row_number,
+                                "item_identity_key": row_data.get("item_identity_key"),
+                                "item_identity_uncertain": uncertain,
+                            },
+                        )
+                        db.add(item)
+                        await db.flush()
+                        summary["created_items"] += 1
+                        if not row.customer_code:
+                            summary["customer_unmatched_rows"] += 1
+                            await _log_in_session(
+                                db,
+                                user,
+                                action_type="base_inquiry_customer_unmatched",
+                                target_type="inquiry",
+                                target_id=str(inquiry.id),
+                                inquiry_id=inquiry.id,
+                                inquiry_no=inquiry.inquiry_no,
+                                description="基础询单导入时客户未匹配",
+                                after_data={"excel_file": file_name, "sheet": row.source_sheet, "row": row.row_number},
+                            )
                         await _log_in_session(
                             db,
                             user,
-                            action_type="base_inquiry_customer_unmatched",
-                            target_type="inquiry",
-                            target_id=str(inquiry.id),
+                            action_type="base_inquiry_item_create_from_excel",
+                            target_type="inquiry_item",
+                            target_id=str(item.id),
                             inquiry_id=inquiry.id,
                             inquiry_no=inquiry.inquiry_no,
-                            description="基础询单导入时客户未匹配",
-                            after_data={"excel_file": file_name, "sheet": row.source_sheet, "row": row.row_number},
+                            description="从 Excel 创建询单款式明细",
+                            after_data={**_row_payload(row), "item_identity_key": row_data.get("item_identity_key"), "excel_file": file_name},
                         )
-                    await _log_in_session(
-                        db,
-                        user,
-                        action_type="base_inquiry_item_create_from_excel",
-                        target_type="inquiry_item",
-                        target_id=str(item.id),
-                        inquiry_id=inquiry.id,
-                        inquiry_no=inquiry.inquiry_no,
-                        description="从 Excel 创建询单款式明细",
-                        after_data={**_row_payload(row), "item_identity_key": row_data.get("item_identity_key"), "excel_file": file_name},
-                    )
-                    import_status = "imported"
+                        import_status = "imported"
             except Exception as exc:
                 summary["write_failed_rows"] += 1
                 error_message = str(exc)

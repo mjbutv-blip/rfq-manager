@@ -66,6 +66,7 @@ export interface BaseInquiryImportConfirmResult {
   summary: {
     created_inquiries: number
     created_items: number
+    updated_inquiry_fields: number
     existing_inquiries: number
     duplicate_items_skipped: number
     customer_records_created: number
