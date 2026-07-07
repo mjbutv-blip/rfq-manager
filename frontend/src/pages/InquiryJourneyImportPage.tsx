@@ -98,6 +98,7 @@ export default function InquiryJourneyImportPage() {
     try {
       const result = await confirmJourneyImport(file, decisions)
       await Promise.all([
+        qc.invalidateQueries({ queryKey: ["inquiries"] }),
         qc.invalidateQueries({ queryKey: ["inquiry-detail"] }),
         qc.invalidateQueries({ queryKey: ["inquiry-journey"] }),
         qc.invalidateQueries({ queryKey: ["factory-quotes"] }),

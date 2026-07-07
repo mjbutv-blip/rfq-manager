@@ -26,6 +26,8 @@ OVERSEAS = "overseas"
 
 INQUIRY_FIELD_LABELS = {
     "customer_order_no": "客户订单号",
+    "group_name": "所属小组",
+    "responsible_sales": "负责业务员",
     "season": "季节",
     "product_name": "品名",
     "series_name": "系列",
@@ -477,6 +479,27 @@ def _json_value(v: Any) -> Any:
     return v
 
 
+def _user_display_name(user: Any) -> str | None:
+    return getattr(user, "display_name", None) or getattr(user, "username", None)
+
+
+def _inquiry_fields_with_uploader(parsed: ParsedInquiry, user: Any) -> dict[str, ExcelValue]:
+    fields = dict(parsed.inquiry_fields)
+    uploader = _user_display_name(user)
+    if uploader:
+        fields.setdefault(
+            "responsible_sales",
+            ExcelValue("responsible_sales", "负责业务员", uploader, "当前账号", "当前登录用户"),
+        )
+    group_name = getattr(user, "group_name", None)
+    if group_name:
+        fields.setdefault(
+            "group_name",
+            ExcelValue("group_name", "所属小组", group_name, "当前账号", "当前登录用户"),
+        )
+    return fields
+
+
 def _same_value(a: Any, b: Any) -> bool:
     if a is None and b in (None, ""):
         return True
@@ -617,9 +640,10 @@ async def preview_journey_import(db: AsyncSession, file_bytes: bytes, file_name:
             })
             continue
 
+        parsed_inquiry_fields = _inquiry_fields_with_uploader(parsed, user)
         inquiry_fields = [
             _field_preview(v, getattr(inq, k, None), f"{inquiry_no}|inquiry|{k}", "inquiries")
-            for k, v in parsed.inquiry_fields.items()
+            for k, v in parsed_inquiry_fields.items()
         ]
         quote_items = []
         quote_items_to_create = 0
@@ -770,7 +794,7 @@ async def confirm_journey_import(db: AsyncSession, file_bytes: bytes, file_name:
         try:
             async with db.begin_nested():
                 inquiry_updates: dict[str, Any] = {}
-                for field, excel in parsed.inquiry_fields.items():
+                for field, excel in _inquiry_fields_with_uploader(parsed, user).items():
                     if _is_empty(excel.value):
                         continue
                     cur = getattr(inq, field, None)
