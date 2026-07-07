@@ -27,6 +27,9 @@ OVERSEAS = "overseas"
 INQUIRY_FIELD_LABELS = {
     "customer_order_no": "客户订单号",
     "season": "季节",
+    "product_name": "品名",
+    "series_name": "系列",
+    "quantity": "数量",
     "order_status": "订单状态",
     "order_date": "下单日期",
     "order_unit_price": "下单美金价格",
@@ -177,6 +180,15 @@ def _clean_str(v: Any) -> str | None:
     return s
 
 
+def _clean_optional(v: Any) -> str | None:
+    s = _clean_str(v)
+    if not s:
+        return None
+    if s in {"0", "0.0", "—", "-", "--", "——", "———", "————", "_", "__", "___", "/", "／"}:
+        return None
+    return s
+
+
 def _clean_inquiry_no(v: Any) -> str | None:
     s = _clean_str(v)
     if not s:
@@ -217,8 +229,14 @@ def _to_int(v: Any) -> int | None:
         return v
     if isinstance(v, float):
         return int(v)
-    digits = re.sub(r"[^\d\-]", "", str(v))
-    return int(digits) if digits else None
+    s = str(v)
+    total_match = re.search(r"共\s*(\d[\d,]*)\s*件", s)
+    if total_match:
+        return int(total_match.group(1).replace(",", ""))
+    matches = [int(m.replace(",", "")) for m in re.findall(r"\d[\d,]*", s)]
+    if not matches:
+        return None
+    return max(matches)
 
 
 def _to_date(v: Any) -> date | None:
@@ -291,9 +309,12 @@ def _parse_workbook(file_bytes: bytes) -> tuple[dict[str, ParsedInquiry], dict[s
             parsed.excel_locations.append(f"总表!A{r}")
 
             for field, label, col, converter in (
-                ("customer_order_no", "客户订单号", "B", _clean_str),
-                ("season", "季节", "D", _clean_str),
-                ("order_status", "订单状态", "T", _clean_str),
+                ("customer_order_no", "客户订单号", "B", _clean_optional),
+                ("series_name", "系列", "C", _clean_optional),
+                ("season", "季节", "D", _clean_optional),
+                ("product_name", "品名", "F", _clean_optional),
+                ("quantity", "数量", "L", _to_int),
+                ("order_status", "订单状态", "T", _clean_optional),
                 ("order_date", "下单日期", "GZ", _to_date),
                 ("order_unit_price", "下单美金价格", "HM", _to_decimal),
                 ("order_quantity", "下单数量", "HC", _to_int),
@@ -399,6 +420,13 @@ def _parse_workbook(file_bytes: bytes) -> tuple[dict[str, ParsedInquiry], dict[s
             rows += 1
             parsed = _parsed_for(records, inquiry_no)
             parsed.excel_locations.append(f"海外报价表-美金!A{r}")
+            for field, label, col, converter in (
+                ("customer_order_no", "客户订单号", "B", _clean_optional),
+                ("product_name", "品名", "D", _clean_optional),
+                ("quantity", "数量", "K", _to_int),
+            ):
+                cell = _cell(ws, r, col)
+                _add_value(parsed.inquiry_fields, ExcelValue(field, label, converter(cell.value), "海外报价表-美金", cell.coordinate), parsed)
             qkey = (OVERSEAS, 1)
             parsed.quote_fields.setdefault(qkey, {})
             for field, label, col, converter in (

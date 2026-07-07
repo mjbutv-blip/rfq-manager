@@ -133,17 +133,32 @@ def _inquiry_fill_candidates(row: BaseImportRow, customer: Customer | None = Non
     )
 
 
-def _fillable_inquiry_fields(inquiry: Inquiry, row: BaseImportRow, customer: Customer | None = None) -> list[str]:
+def _user_display_name(user: Any) -> str | None:
+    return getattr(user, "display_name", None) or getattr(user, "username", None)
+
+
+def _fillable_inquiry_fields(inquiry: Inquiry, row: BaseImportRow, customer: Customer | None = None, user: Any | None = None) -> list[str]:
+    candidates = list(_inquiry_fill_candidates(row, customer))
+    if user is not None:
+        candidates.extend((
+            ("responsible_sales", _user_display_name(user)),
+            ("group_name", getattr(user, "group_name", None)),
+        ))
     return [
         field
-        for field, value in _inquiry_fill_candidates(row, customer)
+        for field, value in candidates
         if value is not None and _is_empty(getattr(inquiry, field, None))
     ]
 
 
-def _fill_empty_inquiry_fields(inquiry: Inquiry, row: BaseImportRow, customer: Customer | None = None) -> dict[str, Any]:
+def _fill_empty_inquiry_fields(inquiry: Inquiry, row: BaseImportRow, customer: Customer | None = None, user: Any | None = None) -> dict[str, Any]:
     updates: dict[str, Any] = {}
-    candidates = _inquiry_fill_candidates(row, customer)
+    candidates = list(_inquiry_fill_candidates(row, customer))
+    if user is not None:
+        candidates.extend((
+            ("responsible_sales", _user_display_name(user)),
+            ("group_name", getattr(user, "group_name", None)),
+        ))
     for field, value in candidates:
         if value is not None and _is_empty(getattr(inquiry, field, None)):
             setattr(inquiry, field, value)
@@ -400,7 +415,7 @@ async def preview_base_inquiry_import(
                 errors.append("无权限向该询单追加款式")
             else:
                 matched_customer = customers.get(row.customer_code or "") if row.customer_code else None
-                fillable_inquiry_fields = _fillable_inquiry_fields(existing_inquiry, row, matched_customer)
+                fillable_inquiry_fields = _fillable_inquiry_fields(existing_inquiry, row, matched_customer, user)
                 summary["fillable_inquiry_fields"] += len(fillable_inquiry_fields)
         elif row.inquiry_no in seen_new_inquiries:
             status = "new_item_for_existing_inquiry"
@@ -547,7 +562,7 @@ async def confirm_base_inquiry_import(
                             summary["existing_inquiries"] += 1
                         if not can_edit_inquiry(inquiry, user):
                             raise PermissionError("无权限向该询单追加款式")
-                        updates = _fill_empty_inquiry_fields(inquiry, row, customer)
+                        updates = _fill_empty_inquiry_fields(inquiry, row, customer, user)
                         if updates:
                             summary["updated_inquiry_fields"] += len(updates)
                             await _log_in_session(
@@ -579,8 +594,8 @@ async def confirm_base_inquiry_import(
                             product_name=row.product_name,
                             series_name=row.series_name,
                             quantity=row.quantity,
-                            group_name=getattr(user, "group_name", None) if getattr(user, "role", None) == "group_leader" else None,
-                            responsible_sales=None,
+                            group_name=getattr(user, "group_name", None),
+                            responsible_sales=_user_display_name(user),
                             remark=row.notes,
                             import_batch_id=batch.id,
                         )
