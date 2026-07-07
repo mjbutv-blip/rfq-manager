@@ -208,7 +208,7 @@ export default function InquiryJourneyImportPage() {
           <Row gutter={16} style={{ marginBottom: 16 }}>
             <Col span={4}><Statistic title="识别询单" value={preview.summary.total_inquiries ?? 0} /></Col>
             <Col span={4}><Statistic title="已匹配" value={preview.summary.matched ?? 0} valueStyle={{ color: "#1677ff" }} /></Col>
-            <Col span={4}><Statistic title="可补充" value={preview.summary.ready_to_fill ?? 0} valueStyle={{ color: "#52c41a" }} /></Col>
+            <Col span={4}><Statistic title="可补字段" value={preview.summary.fillable_inquiry_fields ?? 0} valueStyle={{ color: "#52c41a" }} /></Col>
             <Col span={4}><Statistic title="冲突询单" value={preview.summary.conflict ?? 0} valueStyle={{ color: "#d48806" }} /></Col>
             <Col span={4}><Statistic title="未找到" value={preview.summary.not_found ?? 0} valueStyle={{ color: "#ff4d4f" }} /></Col>
             <Col span={4}><Statistic title="工厂价冲突" value={preview.summary.factory_quote_conflicts ?? 0} valueStyle={{ color: "#d48806" }} /></Col>

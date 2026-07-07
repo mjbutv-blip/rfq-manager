@@ -577,6 +577,8 @@ async def preview_journey_import(db: AsyncSession, file_bytes: bytes, file_name:
         "total_inquiries": 0, "matched": 0, "not_found": 0, "ambiguous": 0,
         "failed": 0, "ready_to_fill": 0, "conflict": 0,
         "factory_quote_conflicts": 0,
+        "fillable_inquiry_fields": 0,
+        "rows_with_fillable_fields": 0,
     }
 
     for inquiry_no, parsed in records.items():
@@ -696,6 +698,9 @@ async def preview_journey_import(db: AsyncSession, file_bytes: bytes, file_name:
         conflict_count += sum(1 for f in factory_quotes if f["status"] == "factory_quote_conflict")
         fillable_inquiry = sum(1 for f in inquiry_fields if f["status"] == "fillable")
         factory_to_create = sum(1 for f in factory_quotes if f["status"] == "new")
+        totals["fillable_inquiry_fields"] += fillable_inquiry
+        if fillable_inquiry:
+            totals["rows_with_fillable_fields"] += 1
 
         status = "conflict" if conflict_count else ("ready_to_fill" if fillable_inquiry or quote_items_to_create or factory_to_create else "matched")
         totals["matched"] += 1
