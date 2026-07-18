@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -75,18 +76,23 @@ async def confirm(
     user: UserDep,
     file: UploadFile = File(...),
     uniform_customer_code: str | None = Form(default=None),
+    confirmed_order_group_keys: str | None = Form(default=None),
 ):
     if not can_import(user):
         raise HTTPException(status_code=403, detail="没有导入权限")
     _validate(file)
     file_bytes = await file.read()
     try:
+        group_keys = json.loads(confirmed_order_group_keys) if confirmed_order_group_keys else []
+        if not isinstance(group_keys, list):
+            raise ValueError("confirmed_order_group_keys 必须是数组")
         result = await confirm_base_inquiry_import(
             db,
             file_bytes,
             file.filename or "unknown.xlsx",
             user,
             uniform_customer_code,
+            [str(k) for k in group_keys],
         )
         await db.commit()
     except Exception as exc:

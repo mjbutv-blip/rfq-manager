@@ -17,6 +17,7 @@ from app.models.sample_record import SampleRecord
 from app.models.production_record import ProductionRecord
 from app.models.backup_record import BackupRecord
 from app.models.data_completion_task import DataCompletionTask
+from app.models.order_group import OrderGroup, OrderGroupItem
 
 __all__ = [
     "Customer",
@@ -38,4 +39,6 @@ __all__ = [
     "ProductionRecord",
     "BackupRecord",
     "DataCompletionTask",
+    "OrderGroup",
+    "OrderGroupItem",
 ]

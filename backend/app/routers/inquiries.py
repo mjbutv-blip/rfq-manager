@@ -191,11 +191,15 @@ async def update_inquiry(inquiry_id: uuid.UUID, body: InquiryUpdate, db: DbDep, 
 @router.get("/{inquiry_id}/journey")
 async def get_inquiry_journey(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
     from sqlalchemy import select
-    from app.models import Customer, Inquiry
+    from app.models import Customer, Inquiry, QuoteItem
     from app.models.factory import Factory
     from app.models.factory_quote_record import FactoryQuoteRecord
     from app.models.inquiry_item import InquiryItem
-    from app.services.journey_service import build_rounds, find_applicable_factory_quote
+    from app.services.journey_service import (
+        build_first_round_view,
+        build_rounds,
+        find_applicable_factory_quote,
+    )
 
     inq = await db.get(Inquiry, inquiry_id)
     if not inq:
@@ -221,6 +225,19 @@ async def get_inquiry_journey(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
     )).scalars().all()
 
     rounds = build_rounds(list(all_quotes))
+
+    first_round_quote_item = (await db.execute(
+        select(QuoteItem).where(
+            QuoteItem.inquiry_id == inquiry_id,
+            QuoteItem.quote_round == 1,
+            QuoteItem.quote_type == "domestic",
+        )
+    )).scalars().first()
+    first_round_quotes = [
+        q for q in all_quotes
+        if q.quote_round == 1 and (q.quote_type or "domestic") == "domestic"
+    ]
+    first_round = build_first_round_view(first_round_quote_item, first_round_quotes)
 
     applicable_factory = None
     if inq.applicable_factory_id:
@@ -275,6 +292,7 @@ async def get_inquiry_journey(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
             "customer_short_name": customer.customer_short_name,
         } if customer else None,
         "applicable_factory": applicable_factory,
+        "first_round": first_round,
         "rounds": rounds,
         "can_edit": can_edit_inquiry(inq, user),
     }

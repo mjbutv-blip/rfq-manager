@@ -405,7 +405,7 @@ def _load_workbook(file_bytes: bytes) -> openpyxl.Workbook:
             return _materialize_readonly_workbook(ro_wb)
 
     if file_bytes[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
-        xls_book = xlrd.open_workbook(file_contents=file_bytes)
+        xls_book = xlrd.open_workbook(file_contents=file_bytes, formatting_info=True)
         wb = openpyxl.Workbook()
         wb.remove(wb.active)
         for sheet in xls_book.sheets():
@@ -416,6 +416,8 @@ def _load_workbook(file_bytes: bytes) -> openpyxl.Workbook:
                     value = _xls_cell_value(cell, xls_book)
                     if value is not None:
                         ws.cell(row=r + 1, column=c + 1, value=value)
+            for rlo, rhi, clo, chi in sheet.merged_cells:
+                ws.merge_cells(start_row=rlo + 1, end_row=rhi, start_column=clo + 1, end_column=chi)
         return wb
 
     raise ValueError("文件不是有效的 Excel 文件（既不是 .xlsx 也不是 .xls 格式）")

@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-import io
 import re
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
-import openpyxl
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import crud
 from app.core.permissions import can_edit_inquiry
-from app.models import Customer, ImportBatch, ImportRow, Inquiry, InquiryItem, OperationLog
+from app.models import Customer, ImportBatch, ImportRow, Inquiry, InquiryItem, OperationLog, OrderGroup, OrderGroupItem
+from app.services.excel_parser import _load_workbook
 from app.services.operation_log_service import log_kwargs_from_user, safe_log
 
 SOURCE_SHEETS = ("总表", "总表海外", "海外报价表-美金")
@@ -35,6 +34,8 @@ class BaseImportRow:
     quantity: int | None = None
     style_no: str | None = None
     notes: str | None = None
+    document_series_name: str | None = None
+    order_group_marker: str | None = None
     raw_data: dict[str, Any] | None = None
 
 
@@ -192,6 +193,42 @@ def _cell(ws, row: int, col: int | None) -> Any:
     return ws.cell(row, col).value if col else None
 
 
+def _merged_parent_range(ws, row: int, col: int | None):
+    if not col:
+        return None
+    for merged_range in ws.merged_cells.ranges:
+        if merged_range.min_row <= row <= merged_range.max_row and merged_range.min_col <= col <= merged_range.max_col:
+            return merged_range
+    return None
+
+
+def _cell_with_merged(ws, row: int, col: int | None) -> Any:
+    if not col:
+        return None
+    merged_range = _merged_parent_range(ws, row, col)
+    if merged_range:
+        return ws.cell(merged_range.min_row, merged_range.min_col).value
+    return ws.cell(row, col).value
+
+
+def _is_order_group_marker(value: str | None) -> bool:
+    if not value:
+        return False
+    compact = re.sub(r"\s+", "", value)
+    return any(token in compact for token in ("一套", "同套", "一组", "同组", "配套", "套装"))
+
+
+def _document_series_name(file_name: str, ws) -> str | None:
+    title = _clean_optional(ws.cell(2, 1).value) or _clean_optional(file_name.rsplit("/", 1)[-1])
+    if not title:
+        return None
+    title = re.sub(r"\.(xlsx|xlsm|xls)$", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"\s+", " ", title).strip()
+    title = re.sub(r"\s*(德国|美国|英国|日本|国内|海外)\s*$", "", title)
+    title = re.sub(r"(单报价单|报价单|单)$", "", title).strip()
+    return title or None
+
+
 def _notes(*parts: tuple[str, Any]) -> str | None:
     chunks = []
     for label, value in parts:
@@ -211,10 +248,106 @@ def _item_key(row: BaseImportRow) -> tuple[str, str | None, bool]:
     return ("uncertain", None, True)
 
 
-def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None) -> tuple[list[BaseImportRow], dict[str, Any]]:
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+def _is_non_default_fill(fill_key: str | None) -> bool:
+    if not fill_key:
+        return False
+    normalized = fill_key.upper().replace("00", "", 1) if fill_key.upper().startswith("00") else fill_key.upper()
+    return normalized not in {"000000", "FFFFFF", "FFFFFFFF", "00000000", "NONE"}
+
+
+def _row_visual_signature(ws, row: int) -> str | None:
+    fills = []
+    for col in range(1, min(ws.max_column, 8) + 1):
+        cell = ws.cell(row, col)
+        color = cell.fill.fgColor.rgb or cell.fill.start_color.rgb
+        if color and _is_non_default_fill(color):
+            fills.append(str(color))
+    if not fills:
+        return None
+    # 同一行里出现次数最多的非默认底色，作为区域识别信号。
+    return max(set(fills), key=fills.count)
+
+
+def _detect_order_group_candidates(rows: list[BaseImportRow], visual_signals: dict[tuple[str, int], str | None]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    by_sheet: dict[str, list[BaseImportRow]] = {}
+    for row in rows:
+        if row.inquiry_no:
+            by_sheet.setdefault(row.source_sheet, []).append(row)
+
+    for sheet, sheet_rows in by_sheet.items():
+        marker_groups: dict[str, list[BaseImportRow]] = {}
+        for row in sheet_rows:
+            if row.order_group_marker and _is_order_group_marker(row.order_group_marker):
+                marker_groups.setdefault(row.order_group_marker, []).append(row)
+        for marker, marker_rows in marker_groups.items():
+            ordered = sorted(marker_rows, key=lambda r: r.row_number)
+            if len(ordered) < 2:
+                continue
+            start, end = ordered[0].row_number, ordered[-1].row_number
+            candidates.append({
+                "key": f"{sheet}:{start}-{end}:{marker}:{'-'.join(r.inquiry_no or '' for r in ordered)}",
+                "source_sheet": sheet,
+                "source_start_row": start,
+                "source_end_row": end,
+                "inquiry_nos": [r.inquiry_no for r in ordered if r.inquiry_no],
+                "basis": [f"系列名列标注：{marker}", "同一 Excel 文件内的配套订单"],
+                "confidence": 0.95,
+                "status": "pending_confirm",
+                "default_confirmed": True,
+                "document_series_name": ordered[0].document_series_name,
+                "group_marker": marker,
+            })
+
+        current: list[BaseImportRow] = []
+        current_signal: str | None = None
+        for row in sorted(sheet_rows, key=lambda r: r.row_number):
+            signal = visual_signals.get((sheet, row.row_number))
+            is_contiguous = bool(current and row.row_number == current[-1].row_number + 1)
+            if current and is_contiguous and signal and signal == current_signal:
+                current.append(row)
+            else:
+                if len(current) >= 2 and current_signal:
+                    start, end = current[0].row_number, current[-1].row_number
+                    candidates.append({
+                        "key": f"{sheet}:{start}-{end}:{'-'.join(r.inquiry_no or '' for r in current)}",
+                        "source_sheet": sheet,
+                        "source_start_row": start,
+                        "source_end_row": end,
+                        "inquiry_nos": [r.inquiry_no for r in current if r.inquiry_no],
+                        "basis": ["连续行", "相同底色/视觉区域"],
+                        "confidence": 0.55,
+                        "status": "group_candidate_uncertain",
+                        "default_confirmed": False,
+                        "document_series_name": current[0].document_series_name,
+                        "group_marker": None,
+                    })
+                current = [row]
+                current_signal = signal
+        if len(current) >= 2 and current_signal:
+            start, end = current[0].row_number, current[-1].row_number
+            candidates.append({
+                "key": f"{sheet}:{start}-{end}:{'-'.join(r.inquiry_no or '' for r in current)}",
+                "source_sheet": sheet,
+                "source_start_row": start,
+                "source_end_row": end,
+                "inquiry_nos": [r.inquiry_no for r in current if r.inquiry_no],
+                "basis": ["连续行", "相同底色/视觉区域"],
+                "confidence": 0.55,
+                "status": "group_candidate_uncertain",
+                "default_confirmed": False,
+                "document_series_name": current[0].document_series_name,
+                "group_marker": None,
+            })
+    return candidates
+
+
+def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None, file_name: str = "") -> tuple[list[BaseImportRow], dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    wb = _load_workbook(file_bytes)
     rows: list[BaseImportRow] = []
     sheet_stats: dict[str, Any] = {}
+    visual_signals: dict[tuple[str, int], str | None] = {}
+    document_series: list[dict[str, Any]] = []
     uniform_customer_code = _clean_optional(uniform_customer_code)
 
     for sheet_name in SOURCE_SHEETS:
@@ -222,6 +355,7 @@ def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None)
             sheet_stats[sheet_name] = {"rows": 0, "present": False}
             continue
         ws = wb[sheet_name]
+        doc_series_name = _document_series_name(file_name, ws)
         headers = _header_map(ws)
         inquiry_col = _find_header(headers, "询单号")
         order_col = _find_header(headers, "订单号", "客户订单号")
@@ -236,7 +370,9 @@ def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None)
 
         start_row = 3 if sheet_name in {"总表", "总表海外"} else 5
         parsed_rows = 0
+        sheet_inquiry_nos: list[str] = []
         for r in range(start_row, ws.max_row + 1):
+            visual_signals[(sheet_name, r)] = _row_visual_signature(ws, r)
             raw_inquiry_no = _clean_str(_cell(ws, r, inquiry_col))
             inquiry_no = _clean_inquiry_no(raw_inquiry_no)
             customer_order_no = _clean_optional(_cell(ws, r, order_col))
@@ -260,6 +396,9 @@ def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None)
             if not customer_order_no and not product_name:
                 continue
 
+            raw_series_name = _clean_optional(_cell_with_merged(ws, r, series_col))
+            order_group_marker = raw_series_name if _is_order_group_marker(raw_series_name) else None
+            series_name = doc_series_name if order_group_marker or not raw_series_name else raw_series_name
             customer_code = _clean_optional(_cell(ws, r, customer_code_col)) or uniform_customer_code
             row = BaseImportRow(
                 source_sheet=sheet_name,
@@ -272,7 +411,7 @@ def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None)
                 customer_code=customer_code,
                 product_name=product_name,
                 product_category=None,
-                series_name=_clean_optional(_cell(ws, r, series_col)),
+                series_name=series_name,
                 quantity=_to_int(_cell(ws, r, qty_col)),
                 style_no=_clean_optional(_cell(ws, r, style_col)),
                 notes=_notes(
@@ -280,22 +419,36 @@ def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None)
                     ("建议内容", ws.cell(r, 8).value if sheet_name in {"总表", "总表海外"} else None),
                     ("工厂回复", ws.cell(r, 9).value if sheet_name in {"总表", "总表海外"} else None),
                 ),
+                document_series_name=doc_series_name,
+                order_group_marker=order_group_marker,
                 raw_data={
                     "source_sheet": sheet_name,
                     "row_number": r,
                     "inquiry_no": inquiry_no,
+                    "document_series_name": doc_series_name,
+                    "order_group_marker": order_group_marker,
                     "customer_code_source": "excel" if _clean_optional(_cell(ws, r, customer_code_col)) else ("uniform_input" if customer_code else None),
                 },
             )
             rows.append(row)
+            sheet_inquiry_nos.append(inquiry_no)
             parsed_rows += 1
         sheet_stats[sheet_name] = {
             "rows": parsed_rows,
             "present": True,
             "layout": "一行一个款式/报价场景，询单号可跨多行",
             "has_customer_code_column": customer_code_col is not None,
+            "document_series_name": doc_series_name,
         }
-    return rows, sheet_stats
+        if sheet_inquiry_nos:
+            document_series.append({
+                "source_sheet": sheet_name,
+                "series_name": doc_series_name,
+                "inquiry_nos": sheet_inquiry_nos,
+                "inquiry_count": len(sheet_inquiry_nos),
+                "basis": ["同一 Excel 文件", "同一总表 sheet"],
+            })
+    return rows, sheet_stats, _detect_order_group_candidates(rows, visual_signals), document_series
 
 
 async def _load_customers(db: AsyncSession, codes: set[str]) -> dict[str, Customer]:
@@ -348,6 +501,8 @@ def _row_payload(row: BaseImportRow) -> dict[str, Any]:
         "quantity": row.quantity,
         "style_no": row.style_no,
         "notes": row.notes,
+        "document_series_name": row.document_series_name,
+        "order_group_marker": row.order_group_marker,
     }
 
 
@@ -358,7 +513,7 @@ async def preview_base_inquiry_import(
     user: Any,
     uniform_customer_code: str | None = None,
 ) -> dict[str, Any]:
-    parsed_rows, sheet_stats = _parse_workbook(file_bytes, uniform_customer_code)
+    parsed_rows, sheet_stats, order_group_candidates, document_series = _parse_workbook(file_bytes, uniform_customer_code, file_name)
     inquiry_nos = {r.inquiry_no for r in parsed_rows if r.inquiry_no}
     customer_codes = {r.customer_code for r in parsed_rows if r.customer_code}
     inquiries = await _load_inquiries(db, inquiry_nos)
@@ -378,6 +533,7 @@ async def preview_base_inquiry_import(
         "fillable_inquiry_fields": 0,
         "failed": 0,
         "importable_rows": 0,
+        "order_group_candidates": len(order_group_candidates),
     }
     rows: list[dict[str, Any]] = []
 
@@ -467,6 +623,8 @@ async def preview_base_inquiry_import(
         "sheet_stats": sheet_stats,
         "summary": summary,
         "rows": rows,
+        "order_group_candidates": order_group_candidates,
+        "document_series": document_series,
         "uniform_customer_code": _clean_optional(uniform_customer_code),
     }
 
@@ -498,6 +656,7 @@ async def confirm_base_inquiry_import(
     file_name: str,
     user: Any,
     uniform_customer_code: str | None = None,
+    confirmed_order_group_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     preview = await preview_base_inquiry_import(db, file_bytes, file_name, user, uniform_customer_code)
     batch = await crud.create_import_batch(db, {
@@ -518,9 +677,12 @@ async def confirm_base_inquiry_import(
         "customer_unmatched_rows": 0,
         "uncertain_item_rows": 0,
         "write_failed_rows": 0,
+        "created_order_groups": 0,
+        "partial_order_groups": 0,
     }
     results: list[dict[str, Any]] = []
     created_inquiries: dict[str, Inquiry] = {}
+    successful_inquiries: dict[str, Inquiry] = {}
     created_item_keys: dict[str, set[tuple[str, str | None]]] = {}
 
     for row_data in preview["rows"]:
@@ -540,6 +702,8 @@ async def confirm_base_inquiry_import(
             quantity=row_data["quantity"],
             style_no=row_data["style_no"],
             notes=row_data["notes"],
+            document_series_name=row_data.get("document_series_name"),
+            order_group_marker=row_data.get("order_group_marker"),
         )
         import_status = status
         error_message = None
@@ -614,6 +778,7 @@ async def confirm_base_inquiry_import(
                             description="从 Excel 创建基础询单",
                             after_data={**_row_payload(row), "excel_file": file_name},
                         )
+                    successful_inquiries[inquiry.inquiry_no] = inquiry
 
                     if status == "duplicate_item":
                         summary["duplicate_items_skipped"] += 1
@@ -702,6 +867,79 @@ async def confirm_base_inquiry_import(
         ))
         results.append({**row_data, "result_status": import_status, "error_message": error_message})
 
+    selected_group_keys = set(confirmed_order_group_keys or [])
+    created_groups: list[dict[str, Any]] = []
+    if selected_group_keys:
+        customer_ids: dict[str, uuid.UUID] = {}
+        customer_codes = {inq.customer_code for inq in successful_inquiries.values() if inq.customer_code}
+        if customer_codes:
+            customer_rows = (await db.execute(select(Customer).where(Customer.customer_code.in_(customer_codes)))).scalars().all()
+            customer_ids = {c.customer_code: c.id for c in customer_rows}
+
+        for candidate in preview.get("order_group_candidates", []):
+            if candidate["key"] not in selected_group_keys:
+                continue
+            group_inquiries = [successful_inquiries[no] for no in candidate["inquiry_nos"] if no in successful_inquiries]
+            if len(group_inquiries) < 2:
+                continue
+            group_status = "active" if len(group_inquiries) == len(candidate["inquiry_nos"]) else "partial"
+            if group_status == "partial":
+                summary["partial_order_groups"] += 1
+            group_code = f"OG-{datetime.utcnow():%Y%m%d}-{str(batch.id)[:8]}-{candidate['source_start_row']}"
+            customer_code = next((inq.customer_code for inq in group_inquiries if inq.customer_code), None)
+            group_marker = candidate.get("group_marker")
+            document_series_name = candidate.get("document_series_name")
+            group_name_parts = [p for p in (document_series_name, group_marker) if p]
+            order_group = OrderGroup(
+                group_code=group_code,
+                group_name=" / ".join(group_name_parts) or f"{candidate['source_sheet']} {candidate['source_start_row']}-{candidate['source_end_row']}",
+                source_file_name=file_name,
+                source_sheet=candidate["source_sheet"],
+                source_start_row=candidate["source_start_row"],
+                source_end_row=candidate["source_end_row"],
+                customer_code=customer_code,
+                customer_id=customer_ids.get(customer_code or ""),
+                group_status=group_status,
+                created_by=getattr(user, "username", None),
+                notes="\n".join([
+                    "识别依据：" + " + ".join(candidate.get("basis") or []),
+                    f"所在报价单系列：{document_series_name or '—'}",
+                    f"组标记：{group_marker or '—'}",
+                ]),
+            )
+            db.add(order_group)
+            await db.flush()
+
+            existing_group_items = (await db.execute(
+                select(OrderGroupItem.inquiry_id).where(OrderGroupItem.inquiry_id.in_([inq.id for inq in group_inquiries]))
+            )).scalars().all()
+            existing_ids = set(existing_group_items)
+            added_count = 0
+            for idx, inq in enumerate(group_inquiries, start=1):
+                if inq.id in existing_ids:
+                    continue
+                source_row = next((r["row_number"] for r in preview["rows"] if r["inquiry_no"] == inq.inquiry_no), None)
+                db.add(OrderGroupItem(
+                    order_group_id=order_group.id,
+                    inquiry_id=inq.id,
+                    inquiry_no=inq.inquiry_no,
+                    source_sheet=candidate["source_sheet"],
+                    source_row=source_row,
+                    sort_order=idx,
+                    is_confirmed=True,
+                ))
+                added_count += 1
+            if added_count < 2:
+                await db.delete(order_group)
+                continue
+            summary["created_order_groups"] += 1
+            created_groups.append({
+                "id": str(order_group.id),
+                "group_code": order_group.group_code,
+                "group_status": order_group.group_status,
+                "inquiry_nos": [inq.inquiry_no for inq in group_inquiries if inq.id not in existing_ids],
+            })
+
     batch.success_rows = summary["created_items"]
     batch.failed_rows = summary["write_failed_rows"]
     batch.new_rows = summary["created_inquiries"]
@@ -718,7 +956,7 @@ async def confirm_base_inquiry_import(
         target_type="import_batch",
         target_id=batch.id,
         description="确认基础询单 Excel 导入",
-        after_data={"file_name": file_name, "summary": summary},
+        after_data={"file_name": file_name, "summary": summary, "created_order_groups": created_groups},
     )
 
     return {
@@ -726,6 +964,7 @@ async def confirm_base_inquiry_import(
         "batch_id": str(batch.id),
         "summary": summary,
         "rows": results,
+        "created_order_groups": created_groups,
         "next_step": {
             "message": "基础询单创建完成。下一步请进入“来龙去脉表资料导入”，回填报价轮次、工厂报价和订单资料。",
             "path": "/inquiry-journey-import",

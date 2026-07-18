@@ -7,9 +7,11 @@
 """
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from app.models.factory_quote_record import FactoryQuoteRecord
+from app.models.quote import QuoteItem
 
 
 def _brief(r: FactoryQuoteRecord) -> dict[str, Any]:
@@ -22,8 +24,48 @@ def _brief(r: FactoryQuoteRecord) -> dict[str, Any]:
         "currency": r.currency,
         "price_unit": r.price_unit,
         "remark": r.remark,
+        "source_sheet": r.source_sheet,
+        "source_cell": r.source_cell,
         "quoted_by": r.quoted_by,
+        "quoted_at": r.quoted_at.isoformat() if r.quoted_at else None,
         "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+
+
+def _num(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def quote_item_brief(item: QuoteItem | None) -> dict[str, Any] | None:
+    if item is None:
+        return None
+    return {
+        "id": str(item.id),
+        "quote_type": item.quote_type,
+        "quote_round": item.quote_round,
+        "order_quantity": item.order_quantity,
+        "calc_quantity": item.calc_quantity,
+        "port_misc_fee_cny": _num(item.port_misc_fee_cny),
+        "exchange_rate": _num(item.exchange_rate),
+        "net_profit_pct": _num(item.net_profit_pct),
+        "commission_pct": _num(item.commission_pct),
+        "selected_factory": item.selected_factory,
+        "selected_factory_price_cny": _num(item.selected_factory_price_cny),
+        "final_quote_usd": _num(item.final_quote_usd),
+        "customer_target_price_usd": _num(item.customer_target_price_usd),
+        "quote_vs_target_ratio": _num(item.quote_vs_target_ratio),
+        "target_gap_cny": _num(item.target_gap_cny),
+        "reverse_target_price_cny": _num(item.reverse_target_price_cny),
+        "current_exchange_rate": _num(item.current_exchange_rate),
+        "gross_profit_cny": _num(item.gross_profit_cny),
+        "trade_amount_usd": _num(item.trade_amount_usd),
     }
 
 
@@ -75,6 +117,146 @@ def compute_price_analysis(cards: list[FactoryQuoteRecord]) -> dict[str, Any]:
         "lowest_factories": lowest_factories, "lowest_price": lowest_price,
         "second_lowest_factories": second_factories, "second_lowest_price": second_price,
         "currency": cards[0].currency, "price_unit": cards[0].price_unit,
+    }
+
+
+def _factory_label(c: FactoryQuoteRecord) -> str:
+    return c.factory_name or "未命名工厂"
+
+
+def build_first_round_factory_analysis(
+    cards: list[FactoryQuoteRecord],
+    quote_item: QuoteItem | None,
+) -> dict[str, Any]:
+    """
+    第一轮 domestic 工厂价格分析。
+    只比较有效报价（factory_price 非空）且币种/单位完全一致的记录；分析结果只
+    用于展示，不写回数据库，不自动推荐或修改选用工厂。
+    """
+    quote_count = len(cards)
+    valid = [c for c in cards if c.factory_price is not None]
+    valid_count = len(valid)
+    units = {(c.currency, c.price_unit) for c in valid}
+    selected_factory = quote_item.selected_factory if quote_item else None
+    selected_price = _num(quote_item.selected_factory_price_cny) if quote_item else None
+
+    base = {
+        "comparable": False,
+        "reason": None,
+        "quote_count": quote_count,
+        "valid_quote_count": valid_count,
+        "currency": None,
+        "price_unit": None,
+        "lowest_factories": [],
+        "lowest_price": None,
+        "highest_factories": [],
+        "highest_price": None,
+        "average_price": None,
+        "second_lowest_factories": [],
+        "second_lowest_price": None,
+        "spread_amount": None,
+        "spread_pct": None,
+        "selected_factory": selected_factory,
+        "selected_factory_price": selected_price,
+        "selected_factory_rank": None,
+        "selected_factory_gap_amount": None,
+        "selected_factory_gap_pct": None,
+        "selected_factory_is_lowest": None,
+    }
+
+    if not cards:
+        return {**base, "reason": "no_quotes"}
+    if not valid:
+        return {**base, "reason": "no_price"}
+    if len(units) > 1:
+        return {**base, "reason": "mismatch"}
+
+    prices = [float(c.factory_price) for c in valid]
+    distinct_prices = sorted(set(prices))
+    lowest_price = distinct_prices[0]
+    highest_price = distinct_prices[-1]
+    second_lowest_price = next((p for p in distinct_prices if p > lowest_price), None)
+    spread_amount = highest_price - lowest_price if len(valid) > 1 else None
+    spread_pct = spread_amount / lowest_price if spread_amount is not None and lowest_price else None
+
+    selected_rank = None
+    selected_gap_amount = None
+    selected_gap_pct = None
+    selected_is_lowest = None
+    if selected_price is not None:
+        selected_rank = 1 + sum(1 for p in distinct_prices if p < selected_price)
+        selected_gap_amount = selected_price - lowest_price
+        selected_gap_pct = selected_gap_amount / lowest_price if lowest_price else None
+        selected_is_lowest = selected_price == lowest_price
+    elif selected_factory:
+        for c in valid:
+            if (c.factory_name or "").strip() == selected_factory.strip():
+                selected_price = float(c.factory_price)
+                selected_rank = 1 + sum(1 for p in distinct_prices if p < selected_price)
+                selected_gap_amount = selected_price - lowest_price
+                selected_gap_pct = selected_gap_amount / lowest_price if lowest_price else None
+                selected_is_lowest = selected_price == lowest_price
+                break
+
+    return {
+        **base,
+        "comparable": True,
+        "reason": None,
+        "currency": valid[0].currency,
+        "price_unit": valid[0].price_unit,
+        "lowest_factories": [_factory_label(c) for c in valid if float(c.factory_price) == lowest_price],
+        "lowest_price": lowest_price,
+        "highest_factories": [_factory_label(c) for c in valid if float(c.factory_price) == highest_price],
+        "highest_price": highest_price,
+        "average_price": sum(prices) / len(prices),
+        "second_lowest_factories": (
+            [_factory_label(c) for c in valid if float(c.factory_price) == second_lowest_price]
+            if second_lowest_price is not None else []
+        ),
+        "second_lowest_price": second_lowest_price,
+        "spread_amount": spread_amount,
+        "spread_pct": spread_pct,
+        "selected_factory_price": selected_price,
+        "selected_factory_rank": selected_rank,
+        "selected_factory_gap_amount": selected_gap_amount,
+        "selected_factory_gap_pct": selected_gap_pct,
+        "selected_factory_is_lowest": selected_is_lowest,
+    }
+
+
+def build_first_round_view(
+    quote_item: QuoteItem | None,
+    cards: list[FactoryQuoteRecord],
+) -> dict[str, Any]:
+    def sort_key(c: FactoryQuoteRecord):
+        price = float(c.factory_price) if c.factory_price is not None else float("inf")
+        return (price, c.factory_name or "", c.created_at)
+
+    sorted_cards = sorted(cards, key=sort_key)
+    analysis = build_first_round_factory_analysis(sorted_cards, quote_item)
+    lowest = set(analysis["lowest_factories"]) if analysis["comparable"] else set()
+    highest = set(analysis["highest_factories"]) if analysis["comparable"] else set()
+    selected = (analysis["selected_factory"] or "").strip()
+    details = []
+    for c in sorted_cards:
+        name = _factory_label(c)
+        row = _brief(c)
+        row["is_lowest"] = name in lowest
+        row["is_highest"] = name in highest
+        row["is_selected"] = bool(selected and name == selected)
+        row["source"] = (
+            f"{c.source_sheet}/{c.source_cell}"
+            if c.source_sheet and c.source_cell
+            else c.source_sheet or c.source_cell or "手动录入"
+        )
+        details.append(row)
+
+    return {
+        "quote_type": "domestic",
+        "quote_round": 1,
+        "quote_item": quote_item_brief(quote_item),
+        "factory_analysis": analysis,
+        "factory_quotes": details,
     }
 
 

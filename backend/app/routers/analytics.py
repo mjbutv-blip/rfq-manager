@@ -12,13 +12,14 @@ from datetime import date as date_type
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.permissions import UserDep, apply_inquiry_scope
 from app.database import get_db
-from app.models import ImportBatch, Inquiry, User
+from app.models import ImportBatch, Inquiry, QuoteItem, User
+from app.models.factory_quote_record import FactoryQuoteRecord
 from app.models.inquiry_item import InquiryItem
 from app.schemas.analytics import (
     CategoryQualityStat,
@@ -206,7 +207,424 @@ def _avg(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 2) if values else None
 
 
+def _is_ordered(status: str | None) -> bool:
+    return status in {"下单", "已下单", "确认转单"}
+
+
+def _is_quoted(status: str | None) -> bool:
+    return bool(status and status not in {"未报价", ""})
+
+
+def _days_between(start, end) -> int | None:
+    if not start or not end:
+        return None
+    return (end - start).days
+
+
+def _factory_key(name: str | None) -> str:
+    return (name or "未知工厂").strip() or "未知工厂"
+
+
+def _quote_type_value(value: str | None) -> str:
+    return value or "domestic"
+
+
 # ── Dashboard ─────────────────────────────────────────────────────────────────
+
+@router.get("/customer-conversion")
+async def customer_conversion_analysis(
+    db: DbDep,
+    user: UserDep,
+    year: int | None = Query(None),
+    customer_code: str | None = Query(None),
+    group_name: str | None = Query(None),
+    responsible_sales: str | None = Query(None),
+    start_date: date_type | None = Query(None),
+    end_date: date_type | None = Query(None),
+):
+    """
+    客户与订单转化分析。第一版只使用已有 inquiries / quote_items 字段，
+    不推断未下单原因，不创建任何分析缓存。
+    """
+    q = select(Inquiry)
+    if year:
+        q = q.where(Inquiry.inquiry_year == year)
+    if customer_code:
+        q = q.where(Inquiry.customer_code == customer_code)
+    if group_name:
+        q = q.where(Inquiry.group_name == group_name)
+    if responsible_sales:
+        q = q.where(Inquiry.responsible_sales == responsible_sales)
+    if start_date:
+        q = q.where(Inquiry.inquiry_date >= start_date)
+    if end_date:
+        q = q.where(Inquiry.inquiry_date <= end_date)
+    q = apply_inquiry_scope(q, user)
+    inquiries = list((await db.execute(q)).scalars().all())
+    inquiry_ids = [i.id for i in inquiries]
+
+    quote_items: list[QuoteItem] = []
+    if inquiry_ids:
+        quote_items = list((await db.execute(
+            select(QuoteItem).where(
+                QuoteItem.inquiry_id.in_(inquiry_ids),
+                QuoteItem.quote_type == "domestic",
+            )
+        )).scalars().all())
+
+    quote_by_inquiry: dict[uuid.UUID, list[QuoteItem]] = defaultdict(list)
+    for item in quote_items:
+        quote_by_inquiry[item.inquiry_id].append(item)
+
+    total = len(inquiries)
+    quoted = sum(1 for i in inquiries if _is_quoted(i.quote_status) or quote_by_inquiry.get(i.id))
+    ordered = sum(1 for i in inquiries if _is_ordered(i.order_status))
+    trade_amount = sum(float(i.trade_amount or 0) for i in inquiries if _is_ordered(i.order_status))
+
+    customer_stats: dict[str, dict[str, Any]] = defaultdict(lambda: {
+        "customer_code": None,
+        "customer_short_name": None,
+        "inquiry_count": 0,
+        "quoted_count": 0,
+        "ordered_count": 0,
+        "trade_amount": 0.0,
+        "target_total": 0,
+        "target_reached": 0,
+        "quote_cycles": [],
+    })
+
+    quote_round_stats: dict[int, dict[str, Any]] = defaultdict(lambda: {"inquiry_count": 0, "ordered_count": 0})
+    quote_cycle_days: list[int] = []
+    target_total = 0
+    target_reached = 0
+    target_gap_values: list[float] = []
+    detail_rows: list[dict[str, Any]] = []
+
+    for inq in inquiries:
+        items = quote_by_inquiry.get(inq.id, [])
+        items_sorted = sorted(items, key=lambda x: (x.quote_round or 0))
+        quote_count = len({item.quote_round for item in items_sorted if item.quote_round})
+        max_round = max([item.quote_round for item in items_sorted if item.quote_round] or [0])
+        qround_key = max_round or 0
+        quote_round_stats[qround_key]["inquiry_count"] += 1
+        if _is_ordered(inq.order_status):
+            quote_round_stats[qround_key]["ordered_count"] += 1
+
+        first_item = items_sorted[0] if items_sorted else None
+        latest_item = items_sorted[-1] if items_sorted else None
+        cycle = None
+        if first_item:
+            cycle = _days_between(
+                first_item.material_received_date or inq.inquiry_date,
+                first_item.client_quoted_date or first_item.quote_date,
+            )
+            if cycle is not None and cycle >= 0:
+                quote_cycle_days.append(cycle)
+
+        if latest_item and latest_item.customer_target_price_usd is not None and latest_item.final_quote_usd is not None:
+            target_total += 1
+            reached = float(latest_item.final_quote_usd) <= float(latest_item.customer_target_price_usd)
+            if reached:
+                target_reached += 1
+            if latest_item.target_gap_cny is not None:
+                target_gap_values.append(float(latest_item.target_gap_cny))
+        else:
+            reached = None
+
+        customer_key = inq.customer_short_name or inq.customer_code or "未知"
+        cs = customer_stats[customer_key]
+        cs["customer_code"] = cs["customer_code"] or inq.customer_code
+        cs["customer_short_name"] = cs["customer_short_name"] or inq.customer_short_name or customer_key
+        cs["inquiry_count"] += 1
+        if _is_quoted(inq.quote_status) or items:
+            cs["quoted_count"] += 1
+        if _is_ordered(inq.order_status):
+            cs["ordered_count"] += 1
+            cs["trade_amount"] += float(inq.trade_amount or latest_item.trade_amount_usd or 0) if latest_item else float(inq.trade_amount or 0)
+        if latest_item and latest_item.customer_target_price_usd is not None and latest_item.final_quote_usd is not None:
+            cs["target_total"] += 1
+            if float(latest_item.final_quote_usd) <= float(latest_item.customer_target_price_usd):
+                cs["target_reached"] += 1
+        if cycle is not None and cycle >= 0:
+            cs["quote_cycles"].append(cycle)
+
+        detail_rows.append({
+            "inquiry_id": str(inq.id),
+            "inquiry_no": inq.inquiry_no,
+            "customer_code": inq.customer_code,
+            "customer_short_name": inq.customer_short_name,
+            "quote_status": inq.quote_status,
+            "order_status": inq.order_status,
+            "inquiry_date": inq.inquiry_date.isoformat() if inq.inquiry_date else None,
+            "order_date": inq.order_date.isoformat() if inq.order_date else None,
+            "quote_round_count": quote_count,
+            "quote_cycle_days": cycle,
+            "final_quote_usd": float(latest_item.final_quote_usd) if latest_item and latest_item.final_quote_usd is not None else float(inq.final_quote) if inq.final_quote is not None else None,
+            "customer_target_price_usd": float(latest_item.customer_target_price_usd) if latest_item and latest_item.customer_target_price_usd is not None else None,
+            "target_reached": reached,
+            "trade_amount": float(inq.trade_amount or latest_item.trade_amount_usd or 0) if latest_item else float(inq.trade_amount or 0),
+        })
+
+    by_customer = []
+    for _key, s in customer_stats.items():
+        by_customer.append({
+            "customer_code": s["customer_code"],
+            "customer_short_name": s["customer_short_name"],
+            "inquiry_count": s["inquiry_count"],
+            "quoted_count": s["quoted_count"],
+            "ordered_count": s["ordered_count"],
+            "conversion_rate": _pct(s["ordered_count"], s["inquiry_count"]),
+            "quote_rate": _pct(s["quoted_count"], s["inquiry_count"]),
+            "target_reached_rate": _pct(s["target_reached"], s["target_total"]) if s["target_total"] else None,
+            "avg_quote_cycle_days": _avg(s["quote_cycles"]),
+            "trade_amount": round(s["trade_amount"], 2),
+        })
+    by_customer.sort(key=lambda r: (-r["inquiry_count"], -r["ordered_count"], r["customer_short_name"] or ""))
+
+    quote_round_relation = []
+    for round_count, s in sorted(quote_round_stats.items(), key=lambda x: x[0]):
+        quote_round_relation.append({
+            "quote_round_count": round_count,
+            "label": "无报价轮次" if round_count == 0 else f"{round_count} 轮",
+            "inquiry_count": s["inquiry_count"],
+            "ordered_count": s["ordered_count"],
+            "conversion_rate": _pct(s["ordered_count"], s["inquiry_count"]),
+        })
+
+    detail_rows.sort(key=lambda r: (r["customer_short_name"] or "", r["inquiry_no"]))
+
+    return {
+        "summary": {
+            "total_inquiries": total,
+            "quoted_inquiries": quoted,
+            "ordered_inquiries": ordered,
+            "quote_rate": _pct(quoted, total),
+            "conversion_rate": _pct(ordered, total),
+            "total_trade_amount": round(trade_amount, 2),
+            "avg_quote_cycle_days": _avg(quote_cycle_days),
+            "target_price_sample_count": target_total,
+            "target_reached_count": target_reached,
+            "target_reached_rate": _pct(target_reached, target_total) if target_total else None,
+            "avg_target_gap_cny": _avg(target_gap_values),
+        },
+        "by_customer": by_customer,
+        "quote_round_relation": quote_round_relation,
+        "quote_cycle_distribution": {
+            "within_3_days": sum(1 for d in quote_cycle_days if d <= 3),
+            "within_7_days": sum(1 for d in quote_cycle_days if 3 < d <= 7),
+            "over_7_days": sum(1 for d in quote_cycle_days if d > 7),
+            "unknown": total - len(quote_cycle_days),
+        },
+        "target_price": {
+            "sample_count": target_total,
+            "reached_count": target_reached,
+            "reached_rate": _pct(target_reached, target_total) if target_total else None,
+            "avg_target_gap_cny": _avg(target_gap_values),
+        },
+        "details": detail_rows[:300],
+        "field_gaps": [
+            {"field": "未下单原因", "status": "字段缺失", "note": "当前不统计未下单原因，避免误判。"},
+            {"field": "未下单时间", "status": "字段缺失", "note": "当前可用 order_status 判断是否下单，但没有标准未下单时间。"},
+        ],
+    }
+
+
+@router.get("/factory-supply")
+async def factory_supply_analysis(
+    db: DbDep,
+    user: UserDep,
+    year: int | None = Query(None),
+    quote_round: int | None = Query(None),
+    quote_type: str | None = Query("domestic"),
+    factory_name: str | None = Query(None),
+    customer_code: str | None = Query(None),
+    group_name: str | None = Query(None),
+    responsible_sales: str | None = Query(None),
+    start_date: date_type | None = Query(None),
+    end_date: date_type | None = Query(None),
+):
+    """
+    工厂供应链管理分析。价格竞争只在同一询单、同一轮次、同一 quote_type、
+    且币种/单位一致的工厂报价之间比较，不跨币种或单位强行计算。
+    """
+    q = (
+        select(FactoryQuoteRecord, Inquiry)
+        .join(Inquiry, FactoryQuoteRecord.inquiry_id == Inquiry.id)
+        .where(FactoryQuoteRecord.quote_round.isnot(None))
+    )
+    if quote_round:
+        q = q.where(FactoryQuoteRecord.quote_round == quote_round)
+    if quote_type:
+        q = q.where(func.coalesce(FactoryQuoteRecord.quote_type, "domestic") == quote_type)
+    if factory_name:
+        q = q.where(FactoryQuoteRecord.factory_name.ilike(f"%{factory_name}%"))
+    if year:
+        q = q.where(Inquiry.inquiry_year == year)
+    if customer_code:
+        q = q.where(Inquiry.customer_code == customer_code)
+    if group_name:
+        q = q.where(Inquiry.group_name == group_name)
+    if responsible_sales:
+        q = q.where(Inquiry.responsible_sales == responsible_sales)
+    if start_date:
+        q = q.where(Inquiry.inquiry_date >= start_date)
+    if end_date:
+        q = q.where(Inquiry.inquiry_date <= end_date)
+    q = apply_inquiry_scope(q, user)
+    rows = list((await db.execute(q)).all())
+
+    quote_records = [r for r, _inq in rows]
+    inquiry_ids = sorted({r.inquiry_id for r in quote_records if r.inquiry_id})
+
+    qitem_rows: list[QuoteItem] = []
+    if inquiry_ids:
+        qi = select(QuoteItem).where(QuoteItem.inquiry_id.in_(inquiry_ids))
+        if quote_round:
+            qi = qi.where(QuoteItem.quote_round == quote_round)
+        if quote_type:
+            qi = qi.where(QuoteItem.quote_type == quote_type)
+        qitem_rows = list((await db.execute(qi)).scalars().all())
+
+    selected_by_scope: dict[tuple[uuid.UUID, int, str], str] = {}
+    for item in qitem_rows:
+        if item.selected_factory:
+            selected_by_scope[(item.inquiry_id, item.quote_round, item.quote_type)] = item.selected_factory.strip()
+
+    factory_stats: dict[str, dict[str, Any]] = defaultdict(lambda: {
+        "factory_name": None,
+        "quote_count": 0,
+        "valid_quote_count": 0,
+        "inquiry_ids": set(),
+        "lowest_price_count": 0,
+        "selected_count": 0,
+        "rank_values": [],
+        "prices": [],
+        "unit_keys": set(),
+        "currency_unit_labels": set(),
+        "latest_quote_date": None,
+    })
+    comparison_groups: dict[tuple[uuid.UUID, int, str], list[FactoryQuoteRecord]] = defaultdict(list)
+
+    for record in quote_records:
+        key = _factory_key(record.factory_name)
+        s = factory_stats[key]
+        s["factory_name"] = key
+        s["quote_count"] += 1
+        if record.inquiry_id:
+            s["inquiry_ids"].add(record.inquiry_id)
+        if record.factory_price is not None:
+            s["valid_quote_count"] += 1
+            s["prices"].append(float(record.factory_price))
+        unit_key = (record.currency or "—", record.price_unit or "—")
+        s["unit_keys"].add(unit_key)
+        s["currency_unit_labels"].add(f"{unit_key[0]}/{unit_key[1]}")
+        if record.quote_date and (s["latest_quote_date"] is None or record.quote_date > s["latest_quote_date"]):
+            s["latest_quote_date"] = record.quote_date
+        if record.inquiry_id and record.quote_round:
+            comparison_groups[(record.inquiry_id, record.quote_round, _quote_type_value(record.quote_type))].append(record)
+
+    comparable_group_count = 0
+    incomparable_group_count = 0
+    price_spread_rows: list[dict[str, Any]] = []
+
+    for (inquiry_id, round_no, qtype), records in comparison_groups.items():
+        valid = [r for r in records if r.factory_price is not None]
+        unit_keys = {(r.currency or "—", r.price_unit or "—") for r in valid}
+        if not valid:
+            continue
+        if len(unit_keys) != 1:
+            incomparable_group_count += 1
+            continue
+
+        comparable_group_count += 1
+        ranked = sorted(valid, key=lambda r: (float(r.factory_price or 0), _factory_key(r.factory_name)))
+        price_values = sorted({float(r.factory_price or 0) for r in ranked})
+        lowest_price = price_values[0]
+        highest_price = price_values[-1]
+        lowest_records = [r for r in ranked if float(r.factory_price or 0) == lowest_price]
+
+        for r in lowest_records:
+            factory_stats[_factory_key(r.factory_name)]["lowest_price_count"] += 1
+
+        for r in ranked:
+            rank = 1 + sum(1 for p in price_values if p < float(r.factory_price or 0))
+            factory_stats[_factory_key(r.factory_name)]["rank_values"].append(rank)
+
+        selected_factory = selected_by_scope.get((inquiry_id, round_no, qtype))
+        if selected_factory:
+            for r in records:
+                if _factory_key(r.factory_name) == selected_factory:
+                    factory_stats[selected_factory]["selected_count"] += 1
+                    break
+
+        if len(price_values) >= 2:
+            price_spread_rows.append({
+                "inquiry_id": str(inquiry_id),
+                "quote_round": round_no,
+                "quote_type": qtype,
+                "lowest_price": lowest_price,
+                "highest_price": highest_price,
+                "spread_amount": round(highest_price - lowest_price, 4),
+                "spread_pct": round((highest_price - lowest_price) / lowest_price, 4) if lowest_price else None,
+            })
+
+    by_factory = []
+    for name, s in factory_stats.items():
+        unit_consistent = len(s["unit_keys"]) <= 1
+        by_factory.append({
+            "factory_name": name,
+            "quote_count": s["quote_count"],
+            "inquiry_count": len(s["inquiry_ids"]),
+            "valid_quote_count": s["valid_quote_count"],
+            "lowest_price_count": s["lowest_price_count"],
+            "selected_count": s["selected_count"],
+            "selected_rate": _pct(s["selected_count"], s["valid_quote_count"]),
+            "lowest_rate": _pct(s["lowest_price_count"], s["valid_quote_count"]),
+            "avg_rank": _avg(s["rank_values"]),
+            "avg_price": _avg(s["prices"]) if unit_consistent else None,
+            "currency_unit": ", ".join(sorted(s["currency_unit_labels"])) if s["currency_unit_labels"] else "—",
+            "unit_consistent": unit_consistent,
+            "latest_quote_date": s["latest_quote_date"].isoformat() if s["latest_quote_date"] else None,
+        })
+    by_factory.sort(key=lambda r: (-r["valid_quote_count"], -r["lowest_price_count"], r["factory_name"]))
+
+    spread_values = [r["spread_pct"] for r in price_spread_rows if r["spread_pct"] is not None]
+    risk_signals = []
+    if incomparable_group_count:
+        risk_signals.append({
+            "level": "warning",
+            "title": "存在币种或单位不一致",
+            "description": f"{incomparable_group_count} 个询单报价组币种或单位不一致，已跳过价格排名比较。",
+        })
+    high_spread_count = sum(1 for v in spread_values if v >= 0.2)
+    if high_spread_count:
+        risk_signals.append({
+            "level": "info",
+            "title": "部分询单报价差异较大",
+            "description": f"{high_spread_count} 个询单报价组最高价比最低价高 20% 以上，建议复核工艺、面辅料、数量或报价口径。",
+        })
+
+    return {
+        "summary": {
+            "factory_count": len(by_factory),
+            "quote_count": len(quote_records),
+            "valid_quote_count": sum(1 for r in quote_records if r.factory_price is not None),
+            "inquiry_count": len({r.inquiry_id for r in quote_records if r.inquiry_id}),
+            "comparable_group_count": comparable_group_count,
+            "incomparable_group_count": incomparable_group_count,
+            "selected_quote_count": sum(r["selected_count"] for r in by_factory),
+            "avg_spread_pct": _avg(spread_values),
+        },
+        "by_factory": by_factory,
+        "price_spread_top": sorted(price_spread_rows, key=lambda r: r["spread_pct"] or 0, reverse=True)[:50],
+        "risk_signals": risk_signals,
+        "field_gaps": [
+            {"field": "工厂响应完成时间", "status": "字段缺失", "note": "当前只有 quoted_at / created_at，缺少标准的工厂收到询价时间和回价时间。"},
+            {"field": "工厂降价幅度", "status": "部分可做", "note": "已有 quote_round，可后续按同一工厂同一询单多轮报价计算降价幅度。"},
+            {"field": "海外 vs 国内完整对比", "status": "需要数据", "note": "接口已支持 quote_type 筛选，但需要国内和海外同口径报价同时存在才适合比较。"},
+        ],
+    }
+
 
 @router.get("/dashboard", response_model=DashboardStats)
 async def dashboard(db: DbDep, user: UserDep, year: int | None = Query(None)):

@@ -12,6 +12,7 @@ from app.routers import transfers, operation_logs, customers, factories, users, 
 from app.routers import data_completion_tasks
 from app.routers import factory_quotes
 from app.routers import base_inquiry_import, inquiry_journey_import
+from app.routers import order_groups
 
 logger = logging.getLogger("rfq")
 
@@ -75,6 +76,7 @@ app.include_router(data_completion_tasks.router, prefix="/api/v1")
 app.include_router(factory_quotes.router, prefix="/api/v1")
 app.include_router(inquiry_journey_import.router, prefix="/api/v1")
 app.include_router(base_inquiry_import.router, prefix="/api/v1")
+app.include_router(order_groups.router, prefix="/api/v1")
 
 
 # ── 系统健康检查 ──────────────────────────────────────────────────────────────
