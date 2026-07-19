@@ -5,6 +5,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Col,
   Descriptions,
   Input,
@@ -55,6 +56,7 @@ export default function BaseInquiryImportPage() {
   const [uniformCustomerCode, setUniformCustomerCode] = useState("")
   const [preview, setPreview] = useState<BaseInquiryImportPreview | null>(null)
   const [result, setResult] = useState<BaseInquiryImportConfirmResult | null>(null)
+  const [confirmedGroupKeys, setConfirmedGroupKeys] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
   const navigate = useNavigate()
@@ -75,7 +77,9 @@ export default function BaseInquiryImportPage() {
     { title: "季节", dataIndex: "season", width: 90, render: val },
     { title: "订单状态", dataIndex: "order_status", width: 120, render: val },
     { title: "品名", dataIndex: "product_name", width: 180, ellipsis: true, render: val },
-    { title: "系列", dataIndex: "series_name", width: 120, render: val },
+    { title: "报价单系列", dataIndex: "document_series_name", width: 160, render: val },
+    { title: "组标记", dataIndex: "order_group_marker", width: 160, render: v => v ? <Tag color="purple">{String(v)}</Tag> : "—" },
+    { title: "系列字段", dataIndex: "series_name", width: 150, render: val },
     { title: "款号/身份", dataIndex: "item_identity_key", width: 160, ellipsis: true, render: val },
     { title: "询单数量", dataIndex: "quantity", width: 100, align: "right", render: val },
     { title: "可补主表字段", dataIndex: "fillable_inquiry_fields", width: 150, render: fields => fields?.length ? fields.join(", ") : "—" },
@@ -89,7 +93,8 @@ export default function BaseInquiryImportPage() {
     try {
       const data = await previewBaseInquiryImport(file, uniformCustomerCode)
       setPreview(data)
-      message.success("基础询单预览完成")
+      setConfirmedGroupKeys(data.order_group_candidates.filter(g => g.default_confirmed).map(g => g.key))
+      message.success("客户总表基础预览完成")
     } catch (err) {
       message.error((err as Error).message)
     } finally {
@@ -101,15 +106,17 @@ export default function BaseInquiryImportPage() {
     if (!file || !preview) return
     setImporting(true)
     try {
-      const data = await confirmBaseInquiryImport(file, uniformCustomerCode)
+      const data = await confirmBaseInquiryImport(file, uniformCustomerCode, confirmedGroupKeys)
       setResult(data)
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["inquiries"] }),
         qc.invalidateQueries({ queryKey: ["inquiry-detail"] }),
         qc.invalidateQueries({ queryKey: ["operation-logs"] }),
         qc.invalidateQueries({ queryKey: ["customers"] }),
+        qc.invalidateQueries({ queryKey: ["order-series"] }),
+        qc.invalidateQueries({ queryKey: ["order-groups"] }),
       ])
-      message.success(`基础询单创建完成：询单 ${data.summary.created_inquiries} 条，款式 ${data.summary.created_items} 条`)
+      message.success(`客户总表基础导入完成：询单 ${data.summary.created_inquiries} 条，款式 ${data.summary.created_items} 条`)
       await handlePreview()
     } catch (err) {
       message.error((err as Error).message)
@@ -120,7 +127,7 @@ export default function BaseInquiryImportPage() {
 
   return (
     <div style={{ padding: 24 }}>
-      <Title level={3}>基础询单导入</Title>
+      <Title level={3}>客户总表基础导入</Title>
       <Card style={{ marginBottom: 16 }}>
         <Dragger
           maxCount={1}
@@ -129,17 +136,19 @@ export default function BaseInquiryImportPage() {
             setFile(f)
             setPreview(null)
             setResult(null)
+            setConfirmedGroupKeys([])
             return false
           }}
           onRemove={() => {
             setFile(null)
             setPreview(null)
             setResult(null)
+            setConfirmedGroupKeys([])
           }}
         >
           <p className="ant-upload-drag-icon"><InboxOutlined /></p>
           <p className="ant-upload-text">上传 Excel</p>
-          <p className="ant-upload-hint">解析总表、总表海外、海外报价表-美金；只创建基础询单和必要款式。</p>
+          <p className="ant-upload-hint">解析总表、总表海外、海外报价表-美金；只创建客户总表里的基础询单和必要款式。</p>
         </Dragger>
         <Space style={{ marginTop: 16 }} wrap>
           <Input
@@ -150,13 +159,14 @@ export default function BaseInquiryImportPage() {
               setUniformCustomerCode(e.target.value)
               setPreview(null)
               setResult(null)
+              setConfirmedGroupKeys([])
             }}
           />
           <Button icon={<FileExcelOutlined />} type="primary" disabled={!file} loading={loading} onClick={handlePreview}>
             解析预览
           </Button>
           <Button icon={<ImportOutlined />} disabled={!preview || preview.summary.importable_rows === 0} loading={importing} onClick={handleConfirm}>
-            确认创建基础询单
+            确认基础导入
           </Button>
         </Space>
       </Card>
@@ -187,6 +197,7 @@ export default function BaseInquiryImportPage() {
             <Col span={3}><Statistic title="可补主表字段" value={preview.summary.fillable_inquiry_fields} valueStyle={{ color: "#1677ff" }} /></Col>
             <Col span={3}><Statistic title="失败" value={preview.summary.failed} valueStyle={{ color: "#ff4d4f" }} /></Col>
             <Col span={3}><Statistic title="可导入" value={preview.summary.importable_rows} valueStyle={{ color: "#52c41a" }} /></Col>
+            <Col span={3}><Statistic title="候选订单组" value={preview.summary.order_group_candidates} valueStyle={{ color: "#1677ff" }} /></Col>
           </Row>
 
           <Card size="small" title="Sheet 识别结果" style={{ marginBottom: 16 }}>
@@ -195,12 +206,68 @@ export default function BaseInquiryImportPage() {
                 <Descriptions.Item key={sheet} label={sheet}>
                   {stat.present ? `${stat.rows} 行，${stat.layout ?? "已识别"}` : "未找到"}
                   {stat.has_customer_code_column ? "，含客户代码列" : ""}
+                  {stat.document_series_name ? `，报价单系列：${stat.document_series_name}` : ""}
                 </Descriptions.Item>
               ))}
             </Descriptions>
           </Card>
 
-          <Card size="small" title="基础询单与款式预览">
+          <Card size="small" title="报价单系列识别" style={{ marginBottom: 16 }}>
+            {preview.document_series.length === 0 ? (
+              <Text type="secondary">未识别到文件级报价单系列。</Text>
+            ) : (
+              <Space direction="vertical" style={{ width: "100%" }}>
+                {preview.document_series.map(series => (
+                  <div key={`${series.source_sheet}-${series.series_name ?? "unknown"}`} style={{ border: "1px solid #e5e7eb", padding: 10, borderRadius: 6, background: "#fafafa" }}>
+                    <Text strong>{series.series_name || "未命名系列"}</Text>
+                    <Text type="secondary">　{series.source_sheet}，共 {series.inquiry_count} 个询单</Text>
+                    <div style={{ marginTop: 4 }}>
+                      <Text strong>询单号：</Text>{series.inquiry_nos.join("，")}
+                    </div>
+                    <div>
+                      <Text strong>识别依据：</Text>{series.basis.join(" + ")}
+                    </div>
+                  </div>
+                ))}
+              </Space>
+            )}
+          </Card>
+
+          <Card size="small" title="订单组候选识别" style={{ marginBottom: 16 }}>
+            {preview.order_group_candidates.length === 0 ? (
+              <Text type="secondary">未识别到明确订单组。当前可靠规则是“系列名列明确标注一套/一组并覆盖多个询单”。</Text>
+            ) : (
+              <Space direction="vertical" style={{ width: "100%" }}>
+                {preview.order_group_candidates.map(group => (
+                  <div key={group.key} style={{ border: "1px solid #d9d9d9", padding: 10, borderRadius: 6, background: "#fff" }}>
+                    <Checkbox
+                      checked={confirmedGroupKeys.includes(group.key)}
+                      onChange={e => {
+                        setConfirmedGroupKeys(keys => e.target.checked
+                          ? Array.from(new Set([...keys, group.key]))
+                          : keys.filter(k => k !== group.key))
+                      }}
+                    >
+                      创建订单组：{group.source_sheet} 第 {group.source_start_row}-{group.source_end_row} 行
+                    </Checkbox>
+                    <div style={{ marginTop: 6, paddingLeft: 24 }}>
+                      <Text strong>所在报价单系列：</Text>{val(group.document_series_name)}
+                      <br />
+                      <Text strong>组标记：</Text>{val(group.group_marker)}
+                      <br />
+                      <Text strong>询单号：</Text>{group.inquiry_nos.join("，")}
+                      <br />
+                      <Text strong>识别依据：</Text>{group.basis.join(" + ")}
+                      <br />
+                      <Text strong>置信度：</Text>{Math.round(group.confidence * 100)}%
+                    </div>
+                  </div>
+                ))}
+              </Space>
+            )}
+          </Card>
+
+          <Card size="small" title="客户总表基础询单与款式预览">
             <Table
               rowKey={r => `${r.source_sheet}-${r.row_number}-${r.inquiry_no ?? "empty"}`}
               size="small"

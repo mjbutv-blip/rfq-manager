@@ -12,6 +12,7 @@ export interface BaseInquiryImportSheetStat {
   present: boolean
   layout?: string
   has_customer_code_column?: boolean
+  document_series_name?: string | null
 }
 
 export interface BaseInquiryImportSummary {
@@ -25,6 +26,29 @@ export interface BaseInquiryImportSummary {
   fillable_inquiry_fields: number
   failed: number
   importable_rows: number
+  order_group_candidates: number
+}
+
+export interface BaseInquiryOrderGroupCandidate {
+  key: string
+  source_sheet: string
+  source_start_row: number
+  source_end_row: number
+  inquiry_nos: string[]
+  basis: string[]
+  confidence: number
+  status: "pending_confirm" | "group_candidate_uncertain" | string
+  default_confirmed: boolean
+  document_series_name?: string | null
+  group_marker?: string | null
+}
+
+export interface BaseInquiryDocumentSeries {
+  source_sheet: string
+  series_name: string | null
+  inquiry_nos: string[]
+  inquiry_count: number
+  basis: string[]
 }
 
 export interface BaseInquiryImportRow {
@@ -42,6 +66,8 @@ export interface BaseInquiryImportRow {
   quantity: number | null
   style_no: string | null
   notes: string | null
+  document_series_name: string | null
+  order_group_marker: string | null
   status: BaseInquiryImportStatus
   flags: BaseInquiryImportStatus[]
   errors: string[]
@@ -59,6 +85,8 @@ export interface BaseInquiryImportPreview {
   sheet_stats: Record<string, BaseInquiryImportSheetStat>
   summary: BaseInquiryImportSummary
   rows: BaseInquiryImportRow[]
+  order_group_candidates: BaseInquiryOrderGroupCandidate[]
+  document_series: BaseInquiryDocumentSeries[]
   uniform_customer_code: string | null
 }
 
@@ -75,7 +103,24 @@ export interface BaseInquiryImportConfirmResult {
     customer_unmatched_rows: number
     uncertain_item_rows: number
     write_failed_rows: number
+    created_order_series: number
+    partial_order_series: number
+    created_order_groups: number
+    partial_order_groups: number
   }
+  created_order_series: {
+    id: string
+    series_code: string
+    series_name: string | null
+    series_status: string
+    inquiry_nos: string[]
+  }[]
+  created_order_groups: {
+    id: string
+    group_code: string
+    group_status: string
+    inquiry_nos: string[]
+  }[]
   rows: BaseInquiryImportRow[]
   next_step: {
     message: string

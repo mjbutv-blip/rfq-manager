@@ -3,7 +3,6 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import { Badge, ConfigProvider, Layout, Menu } from "antd"
 import zhCN from "antd/locale/zh_CN"
 import {
-  BarChartOutlined,
   BellOutlined,
   ClockCircleOutlined,
   CloudServerOutlined,
@@ -40,6 +39,19 @@ import QuoteAnalysisOverviewPage from "@/pages/QuoteAnalysisOverviewPage"
 import DataCompletionTasksPage from "@/pages/DataCompletionTasksPage"
 import DataCompletionDashboardPage from "@/pages/DataCompletionDashboardPage"
 import InquiryJourneyPage from "@/pages/InquiryJourneyPage"
+import OrderSeriesListPage from "@/pages/OrderSeriesListPage"
+import OrderSeriesDetailPage from "@/pages/OrderSeriesDetailPage"
+import OrderGroupListPage from "@/pages/OrderGroupListPage"
+import OrderGroupDetailPage from "@/pages/OrderGroupDetailPage"
+import OrderGroupDemoPage from "@/pages/OrderGroupDemoPage"
+import AnalyticsCenterPage from "@/pages/AnalyticsCenterPage"
+import CustomerConversionAnalysisPage from "@/pages/CustomerConversionAnalysisPage"
+import FactorySupplyAnalysisPage from "@/pages/FactorySupplyAnalysisPage"
+import CompanyManagementAnalysisPage from "@/pages/CompanyManagementAnalysisPage"
+import ProfitCostAnalysisPage from "@/pages/ProfitCostAnalysisPage"
+import ProductCategoryAnalysisPage from "@/pages/ProductCategoryAnalysisPage"
+import OperationEfficiencyAnalysisPage from "@/pages/OperationEfficiencyAnalysisPage"
+import AnalyticsRoadmapPage from "@/pages/AnalyticsRoadmapPage"
 import WarningPage         from "@/pages/WarningPage"
 import OperationLogPage    from "@/pages/OperationLogPage"
 import CustomerListPage    from "@/pages/CustomerListPage"
@@ -95,6 +107,26 @@ function AppLayout() {
     ? "base-inquiry-import"
     : pathname.startsWith("/inquiry-journey-import")
     ? "inquiry-journey-import"
+    : pathname.startsWith("/order-series")
+    ? "order-series"
+    : pathname.startsWith("/order-groups")
+    ? "order-groups"
+    : pathname.startsWith("/analytics-center")
+    ? "analytics-center"
+    : pathname.startsWith("/customer-conversion-analysis")
+    ? "analytics-center"
+    : pathname.startsWith("/factory-supply-analysis")
+    ? "analytics-center"
+    : pathname.startsWith("/company-management-analysis")
+    ? "analytics-center"
+    : pathname.startsWith("/profit-cost-analysis")
+    ? "analytics-center"
+    : pathname.startsWith("/product-category-analysis")
+    ? "analytics-center"
+    : pathname.startsWith("/operation-efficiency-analysis")
+    ? "analytics-center"
+    : pathname.startsWith("/analytics-roadmap")
+    ? "analytics-roadmap"
     : pathname.startsWith("/quote-data-quality")
     ? "quote-data-quality"
     : pathname.startsWith("/customer-category-styles")
@@ -141,9 +173,10 @@ function AppLayout() {
     label: React.ReactNode
     onClick?: () => void
     children?: MenuItem[]
+    disabled?: boolean
   }
 
-  // 报价资料分析系列页面（Step 4-10）收进一个下拉分组，避免顶部导航平铺过多项目
+  // 报价分析系列页面收进一个下拉分组，避免顶部导航平铺过多项目
   const reportAnalysisChildren: MenuItem[] = [
     { key: "quote-analysis-overview", label: "分析总览", onClick: () => navigate("/quote-analysis-overview") },
     { key: "quote-data-quality", label: "资料完整度", onClick: () => navigate("/quote-data-quality") },
@@ -175,16 +208,19 @@ function AppLayout() {
     { key: "dashboard", icon: <DashboardOutlined />, label: "数据总览", onClick: () => navigate("/dashboard") },
     { key: "inquiries", icon: <FileTextOutlined />, label: "询单总表", onClick: () => navigate("/") },
     canImport
-      ? { key: "import", icon: <UploadOutlined />, label: "导入询单", onClick: () => navigate("/import") }
+      ? { key: "import", icon: <UploadOutlined />, label: "通用询单导入", onClick: () => navigate("/import") }
       : null,
     canImport
-      ? { key: "base-inquiry-import", icon: <UploadOutlined />, label: "基础询单导入", onClick: () => navigate("/base-inquiry-import") }
+      ? { key: "base-inquiry-import", icon: <UploadOutlined />, label: "客户总表基础导入", onClick: () => navigate("/base-inquiry-import") }
       : null,
     canImport
       ? { key: "inquiry-journey-import", icon: <UploadOutlined />, label: "来龙去脉导入", onClick: () => navigate("/inquiry-journey-import") }
       : null,
-    { key: "analytics", icon: <BarChartOutlined />, label: "数据分析", onClick: () => navigate("/analytics") },
-    { key: "report-analysis-group", icon: <FileSearchOutlined />, label: "报价资料分析", children: reportAnalysisChildren },
+    { key: "order-series", icon: <TeamOutlined />, label: "报价单系列", onClick: () => navigate("/order-series") },
+    { key: "order-groups", icon: <TeamOutlined />, label: "订单组分析", onClick: () => navigate("/order-groups") },
+    { key: "analytics-center", icon: <FileSearchOutlined />, label: "数据分析中心", onClick: () => navigate("/analytics-center") },
+    { key: "analytics-roadmap", icon: <FileSearchOutlined />, label: "分析规划", onClick: () => navigate("/analytics-roadmap") },
+    { key: "report-analysis-group", icon: <FileSearchOutlined />, label: "报价分析", children: reportAnalysisChildren },
     { key: "risk-trace-group", icon: <BellOutlined />, label: "风险与追溯", children: riskTraceChildren.filter(Boolean) as MenuItem[] },
     canViewLogs
       ? { key: "operation-logs", icon: <ClockCircleOutlined />, label: "操作日志", onClick: () => navigate("/operation-logs") }
@@ -236,6 +272,19 @@ function AppLayout() {
           <Route path="/import" element={<InquiryImportPage />} />
           <Route path="/base-inquiry-import" element={<BaseInquiryImportPage />} />
           <Route path="/inquiry-journey-import" element={<InquiryJourneyImportPage />} />
+          <Route path="/order-series" element={<OrderSeriesListPage />} />
+          <Route path="/order-series/:seriesId" element={<OrderSeriesDetailPage />} />
+          <Route path="/order-groups" element={<OrderGroupListPage />} />
+          <Route path="/order-groups/demo" element={<OrderGroupDemoPage />} />
+          <Route path="/order-groups/:groupId" element={<OrderGroupDetailPage />} />
+          <Route path="/analytics-center" element={<AnalyticsCenterPage />} />
+          <Route path="/customer-conversion-analysis" element={<CustomerConversionAnalysisPage />} />
+          <Route path="/factory-supply-analysis" element={<FactorySupplyAnalysisPage />} />
+          <Route path="/company-management-analysis" element={<CompanyManagementAnalysisPage />} />
+          <Route path="/profit-cost-analysis" element={<ProfitCostAnalysisPage />} />
+          <Route path="/product-category-analysis" element={<ProductCategoryAnalysisPage />} />
+          <Route path="/operation-efficiency-analysis" element={<OperationEfficiencyAnalysisPage />} />
+          <Route path="/analytics-roadmap" element={<AnalyticsRoadmapPage />} />
 
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/quote-data-quality" element={<QuoteDataQualityPage />} />

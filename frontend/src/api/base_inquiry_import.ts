@@ -1,11 +1,14 @@
 import client from "@/api/client"
 import type { BaseInquiryImportConfirmResult, BaseInquiryImportPreview } from "@/types/base_inquiry_import"
 
-function buildForm(file: File, uniformCustomerCode?: string): FormData {
+function buildForm(file: File, uniformCustomerCode?: string, confirmedOrderGroupKeys?: string[]): FormData {
   const form = new FormData()
   form.append("file", file)
   if (uniformCustomerCode?.trim()) {
     form.append("uniform_customer_code", uniformCustomerCode.trim())
+  }
+  if (confirmedOrderGroupKeys) {
+    form.append("confirmed_order_group_keys", JSON.stringify(confirmedOrderGroupKeys))
   }
   return form
 }
@@ -19,10 +22,10 @@ export async function previewBaseInquiryImport(file: File, uniformCustomerCode?:
   return res.data
 }
 
-export async function confirmBaseInquiryImport(file: File, uniformCustomerCode?: string): Promise<BaseInquiryImportConfirmResult> {
+export async function confirmBaseInquiryImport(file: File, uniformCustomerCode?: string, confirmedOrderGroupKeys?: string[]): Promise<BaseInquiryImportConfirmResult> {
   const res = await client.post<BaseInquiryImportConfirmResult>(
     "/base-inquiry-import/confirm",
-    buildForm(file, uniformCustomerCode),
+    buildForm(file, uniformCustomerCode, confirmedOrderGroupKeys),
     { headers: { "Content-Type": "multipart/form-data" } },
   )
   return res.data

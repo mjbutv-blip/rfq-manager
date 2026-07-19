@@ -451,7 +451,8 @@ function useColumns(
         width: 90,
         render: (v: string | null, record) => {
           const code = record.customer_code
-          if (!v || !code) return <Text type="secondary">—</Text>
+          if (!v) return <Text type="secondary">—</Text>
+          if (!code) return <Text>{v}</Text>
           if (mode === "customer") return <Text>{v}</Text>
           return (
             <Tooltip title={`查看 ${code} 全部询单`}>

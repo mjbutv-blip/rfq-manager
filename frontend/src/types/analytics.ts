@@ -68,6 +68,144 @@ export interface QuarterStat {
   trade_change_pct: number | null
 }
 
+export interface CustomerConversionFilter {
+  year?: number
+  customer_code?: string
+  group_name?: string
+  responsible_sales?: string
+  start_date?: string
+  end_date?: string
+}
+
+export interface CustomerConversionSummary {
+  total_inquiries: number
+  quoted_inquiries: number
+  ordered_inquiries: number
+  quote_rate: number
+  conversion_rate: number
+  total_trade_amount: number
+  avg_quote_cycle_days: number | null
+  target_price_sample_count: number
+  target_reached_count: number
+  target_reached_rate: number | null
+  avg_target_gap_cny: number | null
+}
+
+export interface CustomerConversionByCustomer {
+  customer_code: string | null
+  customer_short_name: string | null
+  inquiry_count: number
+  quoted_count: number
+  ordered_count: number
+  conversion_rate: number
+  quote_rate: number
+  target_reached_rate: number | null
+  avg_quote_cycle_days: number | null
+  trade_amount: number
+}
+
+export interface CustomerConversionQuoteRound {
+  quote_round_count: number
+  label: string
+  inquiry_count: number
+  ordered_count: number
+  conversion_rate: number
+}
+
+export interface CustomerConversionDetail {
+  inquiry_id: string
+  inquiry_no: string
+  customer_code: string | null
+  customer_short_name: string | null
+  quote_status: string | null
+  order_status: string | null
+  inquiry_date: string | null
+  order_date: string | null
+  quote_round_count: number
+  quote_cycle_days: number | null
+  final_quote_usd: number | null
+  customer_target_price_usd: number | null
+  target_reached: boolean | null
+  trade_amount: number
+}
+
+export interface CustomerConversionResponse {
+  summary: CustomerConversionSummary
+  by_customer: CustomerConversionByCustomer[]
+  quote_round_relation: CustomerConversionQuoteRound[]
+  quote_cycle_distribution: {
+    within_3_days: number
+    within_7_days: number
+    over_7_days: number
+    unknown: number
+  }
+  target_price: {
+    sample_count: number
+    reached_count: number
+    reached_rate: number | null
+    avg_target_gap_cny: number | null
+  }
+  details: CustomerConversionDetail[]
+  field_gaps: { field: string; status: string; note: string }[]
+}
+
+export interface FactorySupplyFilter {
+  year?: number
+  quote_round?: number
+  quote_type?: string
+  factory_name?: string
+  customer_code?: string
+  group_name?: string
+  responsible_sales?: string
+  start_date?: string
+  end_date?: string
+}
+
+export interface FactorySupplySummary {
+  factory_count: number
+  quote_count: number
+  valid_quote_count: number
+  inquiry_count: number
+  comparable_group_count: number
+  incomparable_group_count: number
+  selected_quote_count: number
+  avg_spread_pct: number | null
+}
+
+export interface FactorySupplyFactoryRow {
+  factory_name: string
+  quote_count: number
+  inquiry_count: number
+  valid_quote_count: number
+  lowest_price_count: number
+  selected_count: number
+  selected_rate: number
+  lowest_rate: number
+  avg_rank: number | null
+  avg_price: number | null
+  currency_unit: string
+  unit_consistent: boolean
+  latest_quote_date: string | null
+}
+
+export interface FactorySupplySpreadRow {
+  inquiry_id: string
+  quote_round: number
+  quote_type: string
+  lowest_price: number
+  highest_price: number
+  spread_amount: number
+  spread_pct: number | null
+}
+
+export interface FactorySupplyResponse {
+  summary: FactorySupplySummary
+  by_factory: FactorySupplyFactoryRow[]
+  price_spread_top: FactorySupplySpreadRow[]
+  risk_signals: { level: "info" | "warning" | "error"; title: string; description: string }[]
+  field_gaps: { field: string; status: string; note: string }[]
+}
+
 // ── 报价资料数据完整度（Step 4）─────────────────────────────────────────────────
 
 export interface QuoteDataQualityFilter {

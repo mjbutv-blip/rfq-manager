@@ -450,7 +450,7 @@ export default function InquiryImportPage() {
   return (
     <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
       {contextHolder}
-      <Title level={4} style={{ marginBottom: 20 }}>导入询单表</Title>
+      <Title level={4} style={{ marginBottom: 20 }}>通用询单导入</Title>
 
       {canPickSales && (
         <Space style={{ marginBottom: 16 }}>

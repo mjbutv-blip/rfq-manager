@@ -10,8 +10,15 @@ export interface JourneyFactoryQuoteBrief {
   currency: string | null
   price_unit: string | null
   remark: string | null
+  source_sheet: string | null
+  source_cell: string | null
+  source?: string | null
   quoted_by: string | null
+  quoted_at: string | null
   created_at: string
+  is_lowest?: boolean
+  is_highest?: boolean
+  is_selected?: boolean
 }
 
 export type PriceMismatchReason = "no_quotes" | "mismatch" | "no_price" | null
@@ -34,6 +41,60 @@ export interface JourneyRound {
   factory2: JourneyFactoryQuoteBrief | null
   other_factories: JourneyFactoryQuoteBrief[]
   price_analysis: JourneyPriceAnalysis
+}
+
+export interface JourneyFirstRoundQuoteItem {
+  id: string
+  quote_type: string
+  quote_round: number
+  order_quantity: number | null
+  calc_quantity: number | null
+  port_misc_fee_cny: number | null
+  exchange_rate: number | null
+  net_profit_pct: number | null
+  commission_pct: number | null
+  selected_factory: string | null
+  selected_factory_price_cny: number | null
+  final_quote_usd: number | null
+  customer_target_price_usd: number | null
+  quote_vs_target_ratio: number | null
+  target_gap_cny: number | null
+  reverse_target_price_cny: number | null
+  current_exchange_rate: number | null
+  gross_profit_cny: number | null
+  trade_amount_usd: number | null
+}
+
+export interface JourneyFirstRoundFactoryAnalysis {
+  comparable: boolean
+  reason: PriceMismatchReason
+  quote_count: number
+  valid_quote_count: number
+  currency: string | null
+  price_unit: string | null
+  lowest_factories: string[]
+  lowest_price: number | null
+  highest_factories: string[]
+  highest_price: number | null
+  average_price: number | null
+  second_lowest_factories: string[]
+  second_lowest_price: number | null
+  spread_amount: number | null
+  spread_pct: number | null
+  selected_factory: string | null
+  selected_factory_price: number | null
+  selected_factory_rank: number | null
+  selected_factory_gap_amount: number | null
+  selected_factory_gap_pct: number | null
+  selected_factory_is_lowest: boolean | null
+}
+
+export interface JourneyFirstRound {
+  quote_type: "domestic" | string
+  quote_round: 1
+  quote_item: JourneyFirstRoundQuoteItem | null
+  factory_analysis: JourneyFirstRoundFactoryAnalysis
+  factory_quotes: JourneyFactoryQuoteBrief[]
 }
 
 export interface JourneyApplicableFactory {
@@ -81,6 +142,7 @@ export interface InquiryJourney {
   inquiry: JourneyInquiry
   customer: JourneyCustomer | null
   applicable_factory: JourneyApplicableFactory | null
+  first_round: JourneyFirstRound
   rounds: JourneyRound[]
   can_edit: boolean
 }
