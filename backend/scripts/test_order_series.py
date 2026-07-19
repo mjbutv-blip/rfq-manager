@@ -9,7 +9,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services.order_group_service import build_order_group_analysis
-from app.services.order_series_service import _series_summary
+from app.services.order_series_service import _series_summary, parse_inquiry_nos_from_quote_file_name
 
 
 def inq(no: str, qty: int):
@@ -80,8 +80,25 @@ def test_series_summary_and_grouping():
     assert summary["missing_quote_inquiries"] == []
 
 
+def test_quote_file_name_parser():
+    assert parse_inquiry_nos_from_quote_file_name("TK-BTKS007-010单报价单.xls") == [
+        "BTKS007", "BTKS008", "BTKS009", "BTKS010"
+    ]
+    assert parse_inquiry_nos_from_quote_file_name("TK-BTKS031-36单报价单.xls") == [
+        "BTKS031", "BTKS032", "BTKS033", "BTKS034", "BTKS035", "BTKS036"
+    ]
+    assert parse_inquiry_nos_from_quote_file_name("TK-BTKS085+086单报价单.xlsx") == ["BTKS085", "BTKS086"]
+    assert parse_inquiry_nos_from_quote_file_name("TK-BTKU998-1000单报价单（温澜）(1).xlsx") == [
+        "BTKU998", "BTKU999", "BTKU1000"
+    ]
+    assert parse_inquiry_nos_from_quote_file_name("更新！TK-BTKUB402+BTKU957-959报价单-煜涛.xlsx") == [
+        "BTKUB402", "BTKU957", "BTKU958", "BTKU959"
+    ]
+
+
 def main():
     test_series_summary_and_grouping()
+    test_quote_file_name_parser()
     print("order series tests passed")
 
 

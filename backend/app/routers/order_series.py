@@ -4,6 +4,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,10 +12,16 @@ from app.core.permissions import UserDep
 from app.database import get_db
 from app.models import OrderSeries, OrderSeriesItem
 from app.services.operation_log_service import log_kwargs_from_user, safe_log
-from app.services.order_series_service import backfill_order_series, get_order_series_detail, list_order_series, load_order_series_or_403
+from app.services.order_series_service import backfill_order_series, backfill_order_series_from_quote_files, get_order_series_detail, list_order_series, load_order_series_or_403
 
 router = APIRouter(prefix="/order-series", tags=["order-series"])
 DbDep = Annotated[AsyncSession, Depends(get_db)]
+
+
+class QuoteFileSeriesBackfillIn(BaseModel):
+    files: list[str] = Field(default_factory=list)
+    root_path: str | None = None
+    replace_generated: bool = True
 
 
 @router.get("")
@@ -27,6 +34,32 @@ async def backfill_series(db: DbDep, user: UserDep, dry_run: bool = Query(defaul
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="只有管理员可以执行历史报价单系列回填")
     result = await backfill_order_series(db, user, dry_run=dry_run)
+    if dry_run:
+        await db.rollback()
+    else:
+        await db.commit()
+    return result
+
+
+@router.post("/backfill-from-quote-files")
+async def backfill_series_from_quote_files(
+    body: QuoteFileSeriesBackfillIn,
+    db: DbDep,
+    user: UserDep,
+    dry_run: bool = Query(default=True),
+):
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="只有管理员可以执行历史报价单系列回填")
+    if not body.files:
+        raise HTTPException(status_code=400, detail="files 不能为空")
+    result = await backfill_order_series_from_quote_files(
+        db,
+        user,
+        files=body.files,
+        dry_run=dry_run,
+        replace_generated=body.replace_generated,
+        root_path=body.root_path,
+    )
     if dry_run:
         await db.rollback()
     else:

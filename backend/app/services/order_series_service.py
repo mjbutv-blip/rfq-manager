@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import uuid
 from collections import Counter
 from datetime import datetime
@@ -44,6 +45,70 @@ def _series_name_from_file(file_name: str | None, fallback: str | None = None) -
     title = re.sub(r"\s*(德国|美国|英国|日本|国内|海外)\s*$", "", title)
     title = re.sub(r"(单报价单|报价单|单)$", "", title).strip()
     return title or fallback
+
+
+def _display_file_name(file_name: str | None, root_path: str | None = None) -> str | None:
+    raw = _clean_text(file_name)
+    if not raw:
+        return None
+    if root_path:
+        try:
+            return os.path.relpath(raw, root_path)
+        except ValueError:
+            pass
+    return raw.rsplit("/", 1)[-1]
+
+
+def parse_inquiry_nos_from_quote_file_name(file_name: str) -> list[str]:
+    name = file_name.rsplit("/", 1)[-1].upper()
+    match = re.search(r"(BTKUB|BTKS|BTKU)\s*\d{2,4}", name)
+    if not match:
+        return []
+    segment = name[match.start():]
+    segment = re.split(r"(?:报价单|目标价|核价|单报价单|\.XLS|\.XLSX|（|\(|-|—)\s*(?:雅琴|煜涛|丰荣|侨利|润东扬|温澜|鼎裕|利恩德|欣舒雅)", segment)[0]
+    token_re = re.compile(r"(?P<sep>[+\-＋])?\s*(?P<prefix>BTKUB|BTKS|BTKU)?\s*(?P<num>\d{2,4})")
+    tokens: list[tuple[str | None, str | None, str]] = []
+    for token in token_re.finditer(segment):
+        prefix = token.group("prefix")
+        num = token.group("num")
+        sep = token.group("sep")
+        if prefix or tokens:
+            tokens.append((sep, prefix, num))
+    if not tokens or not tokens[0][1]:
+        return []
+
+    def fmt(prefix: str, number: int, width: int) -> str:
+        return f"{prefix}{str(number).zfill(width) if number < 10 ** width else str(number)}"
+
+    result: list[str] = []
+    last_prefix = tokens[0][1]
+    last_num = int(tokens[0][2])
+    last_width = len(tokens[0][2])
+    result.append(fmt(last_prefix, last_num, last_width))
+
+    for sep, prefix, num_text in tokens[1:]:
+        current_prefix = prefix or last_prefix
+        if not current_prefix:
+            continue
+        current_width = max(last_width, len(num_text))
+        current_num = int(num_text)
+        if sep == "-" and current_prefix == last_prefix:
+            start, end = sorted((last_num, current_num))
+            for n in range(start + 1, end + 1):
+                result.append(fmt(current_prefix, n, last_width))
+        else:
+            result.append(fmt(current_prefix, current_num, current_width))
+        last_prefix = current_prefix
+        last_num = current_num
+        last_width = current_width
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for inquiry_no in result:
+        if inquiry_no not in seen:
+            deduped.append(inquiry_no)
+            seen.add(inquiry_no)
+    return deduped
 
 
 def _mode(values: list[str | None]) -> str | None:
@@ -242,6 +307,121 @@ async def backfill_order_series(db: AsyncSession, user, dry_run: bool = True) ->
         "candidates": candidates[:50],
         "created_series": created_series[:50],
         "updated_series": updated_series[:50],
+    }
+
+
+async def backfill_order_series_from_quote_files(
+    db: AsyncSession,
+    user,
+    files: list[str],
+    dry_run: bool = True,
+    replace_generated: bool = True,
+    root_path: str | None = None,
+) -> dict[str, Any]:
+    if replace_generated:
+        old_series = (await db.execute(
+            select(OrderSeries).where(
+                OrderSeries.series_status != "cancelled",
+                OrderSeries.series_code.like("OS-BACKFILL-%"),
+            )
+        )).scalars().all()
+        for series in old_series:
+            series.series_status = "cancelled"
+
+    active_sources = {
+        series.source_file_name
+        for series in (await db.execute(select(OrderSeries).where(OrderSeries.series_status != "cancelled"))).scalars().all()
+        if series.source_file_name
+    }
+
+    inquiries = (await db.execute(select(Inquiry))).scalars().all()
+    inquiry_by_no = {inq.inquiry_no.upper(): inq for inq in inquiries if inq.inquiry_no}
+    customer_by_code = {
+        customer.customer_code: customer.id
+        for customer in (await db.execute(select(Customer))).scalars().all()
+        if customer.customer_code
+    }
+
+    seen_signature: set[tuple[tuple[str, ...], str]] = set()
+    candidates: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    created: list[dict[str, Any]] = []
+    candidate_idx = 0
+
+    for raw_file in sorted(files):
+        display_file = _display_file_name(raw_file, root_path) or raw_file
+        inquiry_nos = parse_inquiry_nos_from_quote_file_name(display_file)
+        if not inquiry_nos:
+            skipped.append({"file_name": display_file, "reason": "文件名未识别到询单号"})
+            continue
+        found = [inquiry_by_no[n] for n in inquiry_nos if n in inquiry_by_no]
+        missing = [n for n in inquiry_nos if n not in inquiry_by_no]
+        if not found:
+            skipped.append({"file_name": display_file, "reason": "文件名询单号在系统中不存在", "inquiry_nos": inquiry_nos})
+            continue
+        signature = (tuple(inq.inquiry_no for inq in found), os.path.basename(display_file))
+        if signature in seen_signature:
+            skipped.append({"file_name": display_file, "reason": "重复报价单文件名/询单组合，已忽略"})
+            continue
+        seen_signature.add(signature)
+        if display_file in active_sources:
+            skipped.append({"file_name": display_file, "reason": "系统中已存在同来源 active 系列"})
+            continue
+
+        candidate_idx += 1
+        series_name = _series_name_from_file(display_file, fallback=os.path.basename(display_file))
+        customer_code = _mode([inq.customer_code for inq in found])
+        candidate = {
+            "source_file_name": display_file,
+            "source_sheet": None,
+            "series_name": series_name,
+            "customer_code": customer_code,
+            "inquiry_count": len(found),
+            "inquiry_nos": [inq.inquiry_no for inq in found],
+            "missing_inquiry_nos": missing,
+            "action": "create",
+        }
+        candidates.append(candidate)
+        if dry_run:
+            continue
+
+        order_series = OrderSeries(
+            series_code=f"OS-FILE-{datetime.utcnow():%Y%m%d}-{candidate_idx:04d}",
+            series_name=series_name,
+            source_file_name=display_file,
+            source_sheet=None,
+            source_start_row=None,
+            source_end_row=None,
+            customer_code=customer_code,
+            customer_id=customer_by_code.get(customer_code) if customer_code else None,
+            series_status="active",
+            created_by=getattr(user, "username", None),
+            notes="历史数据回填：按普通报价单文件名中的询单号范围/组合归为报价单系列",
+        )
+        db.add(order_series)
+        await db.flush()
+        for sort_order, inq in enumerate(found, start=1):
+            db.add(OrderSeriesItem(
+                order_series_id=order_series.id,
+                inquiry_id=inq.id,
+                inquiry_no=inq.inquiry_no,
+                source_sheet=None,
+                source_row=None,
+                sort_order=sort_order,
+                is_confirmed=True,
+            ))
+        created.append({**candidate, "id": str(order_series.id), "series_code": order_series.series_code})
+
+    return {
+        "dry_run": dry_run,
+        "replace_generated": replace_generated,
+        "candidate_count": len(candidates),
+        "would_create": len(candidates),
+        "created_count": len(created),
+        "skipped_count": len(skipped),
+        "candidates": candidates[:200],
+        "created_series": created[:200],
+        "skipped": skipped[:200],
     }
 
 
