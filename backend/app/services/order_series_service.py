@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import uuid
 from collections import Counter
+from datetime import datetime
+import re
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import can_view_inquiry
-from app.models import FactoryQuoteRecord, Inquiry, OrderGroup, OrderGroupItem, OrderSeries, OrderSeriesItem, QuoteItem
+from app.models import Customer, FactoryQuoteRecord, Inquiry, InquiryItem, OrderGroup, OrderGroupItem, OrderSeries, OrderSeriesItem, QuoteItem
 from app.services.order_group_service import build_order_group_analysis
 
 
@@ -23,6 +25,30 @@ def _num(value: Any) -> float | None:
 
 def _sum_or_none(values: list[float | None]) -> float | None:
     return None if any(v is None for v in values) else sum(v for v in values if v is not None)
+
+
+def _clean_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _series_name_from_file(file_name: str | None, fallback: str | None = None) -> str | None:
+    raw = _clean_text(file_name)
+    if not raw:
+        return fallback
+    title = raw.rsplit("/", 1)[-1]
+    title = re.sub(r"\.(xlsx|xlsm|xls)$", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"\s+", " ", title).strip()
+    title = re.sub(r"\s*(德国|美国|英国|日本|国内|海外)\s*$", "", title)
+    title = re.sub(r"(单报价单|报价单|单)$", "", title).strip()
+    return title or fallback
+
+
+def _mode(values: list[str | None]) -> str | None:
+    cleaned = [v for v in values if v]
+    return Counter(cleaned).most_common(1)[0][0] if cleaned else None
 
 
 async def load_order_series_or_403(db: AsyncSession, series_id: uuid.UUID, user) -> tuple[OrderSeries, list[OrderSeriesItem], list[Inquiry]]:
@@ -57,6 +83,149 @@ async def _groups_for_inquiries(db: AsyncSession, inquiry_ids: list[uuid.UUID]) 
         select(OrderGroup).where(OrderGroup.id.in_(by_group.keys()), OrderGroup.group_status != "cancelled")
     )).scalars().all()
     return [(group, sorted(by_group[group.id], key=lambda item: item.sort_order)) for group in groups]
+
+
+async def backfill_order_series(db: AsyncSession, user, dry_run: bool = True) -> dict[str, Any]:
+    existing_series_items = set((await db.execute(select(OrderSeriesItem.inquiry_id))).scalars().all())
+    existing_series_rows = (await db.execute(select(OrderSeries).where(OrderSeries.series_status != "cancelled"))).scalars().all()
+    existing_by_source = {
+        (series.source_file_name, series.source_sheet): series
+        for series in existing_series_rows
+        if series.source_file_name and series.source_sheet
+    }
+
+    items = (await db.execute(
+        select(InquiryItem).where(InquiryItem.extra_data.is_not(None)).order_by(InquiryItem.inquiry_no)
+    )).scalars().all()
+
+    grouped: dict[tuple[str, str], dict[uuid.UUID, dict[str, Any]]] = {}
+    skipped_no_source = 0
+    skipped_existing = 0
+    for item in items:
+        if not item.inquiry_id or item.inquiry_id in existing_series_items:
+            skipped_existing += 1
+            continue
+        extra = item.extra_data or {}
+        source_file = _clean_text(extra.get("source_file") or extra.get("file_name"))
+        source_sheet = _clean_text(extra.get("source_sheet"))
+        source_row = extra.get("source_row")
+        if not source_file or not source_sheet:
+            skipped_no_source += 1
+            continue
+        bucket = grouped.setdefault((source_file, source_sheet), {})
+        current = bucket.get(item.inquiry_id)
+        row_num = int(source_row) if isinstance(source_row, int) or (isinstance(source_row, str) and source_row.isdigit()) else None
+        if current is None or (row_num is not None and (current.get("source_row") is None or row_num < current["source_row"])):
+            bucket[item.inquiry_id] = {
+                "inquiry_id": item.inquiry_id,
+                "inquiry_no": item.inquiry_no,
+                "source_row": row_num,
+                "series_name": item.series_name,
+            }
+
+    candidates: list[dict[str, Any]] = []
+    created_series: list[dict[str, Any]] = []
+    updated_series: list[dict[str, Any]] = []
+    linked_groups = 0
+
+    for idx, ((source_file, source_sheet), row_map) in enumerate(sorted(grouped.items(), key=lambda kv: (kv[0][0], kv[0][1])), start=1):
+        rows = sorted(row_map.values(), key=lambda row: (row.get("source_row") is None, row.get("source_row") or 0, row.get("inquiry_no") or ""))
+        if len(rows) < 2:
+            continue
+        inquiry_ids = [row["inquiry_id"] for row in rows]
+        inquiries = (await db.execute(select(Inquiry).where(Inquiry.id.in_(inquiry_ids)))).scalars().all()
+        inquiry_by_id = {inq.id: inq for inq in inquiries}
+        ordered_inquiries = [inquiry_by_id[row["inquiry_id"]] for row in rows if row["inquiry_id"] in inquiry_by_id]
+        if len(ordered_inquiries) < 2:
+            continue
+
+        source_rows = [row["source_row"] for row in rows if row.get("source_row") is not None]
+        fallback_series_name = _mode([row.get("series_name") for row in rows] + [inq.series_name for inq in ordered_inquiries])
+        series_name = _series_name_from_file(source_file, fallback_series_name)
+        customer_code = _mode([inq.customer_code for inq in ordered_inquiries])
+        existing = existing_by_source.get((source_file, source_sheet))
+        candidate = {
+            "source_file_name": source_file,
+            "source_sheet": source_sheet,
+            "series_name": series_name,
+            "source_start_row": min(source_rows) if source_rows else None,
+            "source_end_row": max(source_rows) if source_rows else None,
+            "customer_code": customer_code,
+            "inquiry_count": len(ordered_inquiries),
+            "inquiry_nos": [inq.inquiry_no for inq in ordered_inquiries],
+            "action": "update_existing" if existing else "create",
+        }
+        candidates.append(candidate)
+        if dry_run:
+            continue
+
+        customer_id = None
+        if customer_code:
+            customer = (await db.execute(select(Customer).where(Customer.customer_code == customer_code))).scalars().first()
+            customer_id = customer.id if customer else None
+
+        if existing:
+            order_series = existing
+            added_count = 0
+        else:
+            order_series = OrderSeries(
+                series_code=f"OS-BACKFILL-{datetime.utcnow():%Y%m%d}-{idx:04d}",
+                series_name=series_name,
+                source_file_name=source_file,
+                source_sheet=source_sheet,
+                source_start_row=candidate["source_start_row"],
+                source_end_row=candidate["source_end_row"],
+                customer_code=customer_code,
+                customer_id=customer_id,
+                series_status="active",
+                created_by=getattr(user, "username", None),
+                notes="历史数据回填：按 inquiry_items.extra_data.source_file + source_sheet 归为报价单系列",
+            )
+            db.add(order_series)
+            await db.flush()
+            added_count = 0
+
+        for sort_order, row in enumerate(rows, start=1):
+            inq = inquiry_by_id.get(row["inquiry_id"])
+            if not inq:
+                continue
+            db.add(OrderSeriesItem(
+                order_series_id=order_series.id,
+                inquiry_id=inq.id,
+                inquiry_no=inq.inquiry_no,
+                source_sheet=source_sheet,
+                source_row=row.get("source_row"),
+                sort_order=sort_order,
+                is_confirmed=True,
+            ))
+            added_count += 1
+
+        groups = await _groups_for_inquiries(db, [inq.id for inq in ordered_inquiries])
+        for group, _group_items in groups:
+            if group.order_series_id is None:
+                group.order_series_id = order_series.id
+                linked_groups += 1
+
+        payload = {**candidate, "id": str(order_series.id), "series_code": order_series.series_code, "added_items": added_count}
+        if existing:
+            updated_series.append(payload)
+        else:
+            created_series.append(payload)
+
+    return {
+        "dry_run": dry_run,
+        "candidate_count": len(candidates),
+        "would_create": sum(1 for c in candidates if c["action"] == "create"),
+        "would_update_existing": sum(1 for c in candidates if c["action"] == "update_existing"),
+        "created_count": len(created_series),
+        "updated_existing_count": len(updated_series),
+        "linked_order_groups": linked_groups,
+        "skipped_existing_item_rows": skipped_existing,
+        "skipped_no_source_rows": skipped_no_source,
+        "candidates": candidates[:50],
+        "created_series": created_series[:50],
+        "updated_series": updated_series[:50],
+    }
 
 
 async def list_order_series(db: AsyncSession, user) -> list[dict[str, Any]]:
