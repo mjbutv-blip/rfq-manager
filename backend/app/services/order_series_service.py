@@ -128,10 +128,26 @@ async def backfill_order_series(db: AsyncSession, user, dry_run: bool = True) ->
     updated_series: list[dict[str, Any]] = []
     linked_groups = 0
 
-    for idx, ((source_file, source_sheet), row_map) in enumerate(sorted(grouped.items(), key=lambda kv: (kv[0][0], kv[0][1])), start=1):
-        rows = sorted(row_map.values(), key=lambda row: (row.get("source_row") is None, row.get("source_row") or 0, row.get("inquiry_no") or ""))
+    def sheet_priority(sheet: str) -> int:
+        if sheet == "总表":
+            return 0
+        if sheet == "总表海外":
+            return 1
+        if sheet == "海外报价表-美金":
+            return 2
+        return 9
+
+    planned_inquiry_ids: set[uuid.UUID] = set()
+    ordered_groups = sorted(grouped.items(), key=lambda kv: (kv[0][0], sheet_priority(kv[0][1]), kv[0][1]))
+    candidate_idx = 0
+    for (source_file, source_sheet), row_map in ordered_groups:
+        rows = [
+            row for row in sorted(row_map.values(), key=lambda row: (row.get("source_row") is None, row.get("source_row") or 0, row.get("inquiry_no") or ""))
+            if row["inquiry_id"] not in planned_inquiry_ids
+        ]
         if len(rows) < 2:
             continue
+        candidate_idx += 1
         inquiry_ids = [row["inquiry_id"] for row in rows]
         inquiries = (await db.execute(select(Inquiry).where(Inquiry.id.in_(inquiry_ids)))).scalars().all()
         inquiry_by_id = {inq.id: inq for inq in inquiries}
@@ -156,6 +172,7 @@ async def backfill_order_series(db: AsyncSession, user, dry_run: bool = True) ->
             "action": "update_existing" if existing else "create",
         }
         candidates.append(candidate)
+        planned_inquiry_ids.update(inquiry_ids)
         if dry_run:
             continue
 
@@ -169,7 +186,7 @@ async def backfill_order_series(db: AsyncSession, user, dry_run: bool = True) ->
             added_count = 0
         else:
             order_series = OrderSeries(
-                series_code=f"OS-BACKFILL-{datetime.utcnow():%Y%m%d}-{idx:04d}",
+                series_code=f"OS-BACKFILL-{datetime.utcnow():%Y%m%d}-{candidate_idx:04d}",
                 series_name=series_name,
                 source_file_name=source_file,
                 source_sheet=source_sheet,
