@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import crud
 from app.core.permissions import can_edit_inquiry
-from app.models import Customer, ImportBatch, ImportRow, Inquiry, InquiryItem, OperationLog, OrderGroup, OrderGroupItem
+from app.models import Customer, ImportBatch, ImportRow, Inquiry, InquiryItem, OperationLog, OrderGroup, OrderGroupItem, OrderSeries, OrderSeriesItem
 from app.services.excel_parser import _load_workbook
 from app.services.operation_log_service import log_kwargs_from_user, safe_log
 
@@ -677,6 +677,8 @@ async def confirm_base_inquiry_import(
         "customer_unmatched_rows": 0,
         "uncertain_item_rows": 0,
         "write_failed_rows": 0,
+        "created_order_series": 0,
+        "partial_order_series": 0,
         "created_order_groups": 0,
         "partial_order_groups": 0,
     }
@@ -867,15 +869,77 @@ async def confirm_base_inquiry_import(
         ))
         results.append({**row_data, "result_status": import_status, "error_message": error_message})
 
+    created_series_by_sheet: dict[tuple[str, str | None], OrderSeries] = {}
+    created_series: list[dict[str, Any]] = []
+    customer_ids: dict[str, uuid.UUID] = {}
+    customer_codes = {inq.customer_code for inq in successful_inquiries.values() if inq.customer_code}
+    if customer_codes:
+        customer_rows = (await db.execute(select(Customer).where(Customer.customer_code.in_(customer_codes)))).scalars().all()
+        customer_ids = {c.customer_code: c.id for c in customer_rows}
+
+    for series_candidate in preview.get("document_series", []):
+        source_sheet = series_candidate["source_sheet"]
+        series_inquiry_nos = series_candidate["inquiry_nos"]
+        series_inquiries = [successful_inquiries[no] for no in series_inquiry_nos if no in successful_inquiries]
+        if len(series_inquiries) < 2:
+            continue
+        series_status = "active" if len(series_inquiries) == len(series_inquiry_nos) else "partial"
+        if series_status == "partial":
+            summary["partial_order_series"] += 1
+        source_rows = [r["row_number"] for r in preview["rows"] if r["source_sheet"] == source_sheet and r["inquiry_no"] in {inq.inquiry_no for inq in series_inquiries}]
+        customer_code = next((inq.customer_code for inq in series_inquiries if inq.customer_code), None)
+        series_name = series_candidate.get("series_name")
+        order_series = OrderSeries(
+            series_code=f"OS-{datetime.utcnow():%Y%m%d}-{str(batch.id)[:8]}-{source_sheet}-{min(source_rows) if source_rows else 0}",
+            series_name=series_name,
+            source_file_name=file_name,
+            source_sheet=source_sheet,
+            source_start_row=min(source_rows) if source_rows else None,
+            source_end_row=max(source_rows) if source_rows else None,
+            customer_code=customer_code,
+            customer_id=customer_ids.get(customer_code or ""),
+            series_status=series_status,
+            created_by=getattr(user, "username", None),
+            notes="识别依据：" + " + ".join(series_candidate.get("basis") or []),
+        )
+        db.add(order_series)
+        await db.flush()
+
+        existing_series_items = (await db.execute(
+            select(OrderSeriesItem.inquiry_id).where(OrderSeriesItem.inquiry_id.in_([inq.id for inq in series_inquiries]))
+        )).scalars().all()
+        existing_series_ids = set(existing_series_items)
+        added_count = 0
+        for idx, inq in enumerate(series_inquiries, start=1):
+            if inq.id in existing_series_ids:
+                continue
+            source_row = next((r["row_number"] for r in preview["rows"] if r["inquiry_no"] == inq.inquiry_no and r["source_sheet"] == source_sheet), None)
+            db.add(OrderSeriesItem(
+                order_series_id=order_series.id,
+                inquiry_id=inq.id,
+                inquiry_no=inq.inquiry_no,
+                source_sheet=source_sheet,
+                source_row=source_row,
+                sort_order=idx,
+                is_confirmed=True,
+            ))
+            added_count += 1
+        if added_count < 2:
+            await db.delete(order_series)
+            continue
+        summary["created_order_series"] += 1
+        created_series_by_sheet[(source_sheet, series_name)] = order_series
+        created_series.append({
+            "id": str(order_series.id),
+            "series_code": order_series.series_code,
+            "series_name": order_series.series_name,
+            "series_status": order_series.series_status,
+            "inquiry_nos": [inq.inquiry_no for inq in series_inquiries if inq.id not in existing_series_ids],
+        })
+
     selected_group_keys = set(confirmed_order_group_keys or [])
     created_groups: list[dict[str, Any]] = []
     if selected_group_keys:
-        customer_ids: dict[str, uuid.UUID] = {}
-        customer_codes = {inq.customer_code for inq in successful_inquiries.values() if inq.customer_code}
-        if customer_codes:
-            customer_rows = (await db.execute(select(Customer).where(Customer.customer_code.in_(customer_codes)))).scalars().all()
-            customer_ids = {c.customer_code: c.id for c in customer_rows}
-
         for candidate in preview.get("order_group_candidates", []):
             if candidate["key"] not in selected_group_keys:
                 continue
@@ -889,6 +953,7 @@ async def confirm_base_inquiry_import(
             customer_code = next((inq.customer_code for inq in group_inquiries if inq.customer_code), None)
             group_marker = candidate.get("group_marker")
             document_series_name = candidate.get("document_series_name")
+            parent_series = created_series_by_sheet.get((candidate["source_sheet"], document_series_name))
             group_name_parts = [p for p in (document_series_name, group_marker) if p]
             order_group = OrderGroup(
                 group_code=group_code,
@@ -897,6 +962,7 @@ async def confirm_base_inquiry_import(
                 source_sheet=candidate["source_sheet"],
                 source_start_row=candidate["source_start_row"],
                 source_end_row=candidate["source_end_row"],
+                order_series_id=parent_series.id if parent_series else None,
                 customer_code=customer_code,
                 customer_id=customer_ids.get(customer_code or ""),
                 group_status=group_status,
@@ -956,7 +1022,7 @@ async def confirm_base_inquiry_import(
         target_type="import_batch",
         target_id=batch.id,
         description="确认基础询单 Excel 导入",
-        after_data={"file_name": file_name, "summary": summary, "created_order_groups": created_groups},
+        after_data={"file_name": file_name, "summary": summary, "created_order_series": created_series, "created_order_groups": created_groups},
     )
 
     return {
@@ -964,6 +1030,7 @@ async def confirm_base_inquiry_import(
         "batch_id": str(batch.id),
         "summary": summary,
         "rows": results,
+        "created_order_series": created_series,
         "created_order_groups": created_groups,
         "next_step": {
             "message": "基础询单创建完成。下一步请进入“来龙去脉表资料导入”，回填报价轮次、工厂报价和订单资料。",
