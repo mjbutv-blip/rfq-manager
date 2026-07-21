@@ -16,6 +16,7 @@ from app.services.excel_parser import _load_workbook
 from app.services.operation_log_service import log_kwargs_from_user, safe_log
 
 SOURCE_SHEETS = ("总表", "总表海外", "海外报价表-美金")
+MAX_TRAILING_EMPTY_ROWS = 200
 
 
 @dataclass
@@ -370,15 +371,20 @@ def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None,
 
         start_row = 3 if sheet_name in {"总表", "总表海外"} else 5
         parsed_rows = 0
+        empty_streak = 0
         sheet_inquiry_nos: list[str] = []
         for r in range(start_row, ws.max_row + 1):
-            visual_signals[(sheet_name, r)] = _row_visual_signature(ws, r)
             raw_inquiry_no = _clean_str(_cell(ws, r, inquiry_col))
             inquiry_no = _clean_inquiry_no(raw_inquiry_no)
             customer_order_no = _clean_optional(_cell(ws, r, order_col))
             product_name = _clean_optional(_cell(ws, r, product_col))
             if not inquiry_no and not any(_clean_str(ws.cell(r, c).value) for c in range(1, min(ws.max_column, 8) + 1)):
+                empty_streak += 1
+                if empty_streak >= MAX_TRAILING_EMPTY_ROWS:
+                    break
                 continue
+            empty_streak = 0
+            visual_signals[(sheet_name, r)] = _row_visual_signature(ws, r)
             if not inquiry_no and raw_inquiry_no and not re.search(r"[A-Za-z]", raw_inquiry_no):
                 continue
             if not inquiry_no and not customer_order_no and not product_name:
