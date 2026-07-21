@@ -1,6 +1,8 @@
 import client from "@/api/client"
 import type { BaseInquiryImportConfirmResult, BaseInquiryImportPreview } from "@/types/base_inquiry_import"
 
+const IMPORT_TIMEOUT_MS = 120_000
+
 function buildForm(file: File, uniformCustomerCode?: string, confirmedOrderGroupKeys?: string[]): FormData {
   const form = new FormData()
   form.append("file", file)
@@ -17,7 +19,7 @@ export async function previewBaseInquiryImport(file: File, uniformCustomerCode?:
   const res = await client.post<BaseInquiryImportPreview>(
     "/base-inquiry-import/preview",
     buildForm(file, uniformCustomerCode),
-    { headers: { "Content-Type": "multipart/form-data" } },
+    { headers: { "Content-Type": "multipart/form-data" }, timeout: IMPORT_TIMEOUT_MS },
   )
   return res.data
 }
@@ -26,7 +28,7 @@ export async function confirmBaseInquiryImport(file: File, uniformCustomerCode?:
   const res = await client.post<BaseInquiryImportConfirmResult>(
     "/base-inquiry-import/confirm",
     buildForm(file, uniformCustomerCode, confirmedOrderGroupKeys),
-    { headers: { "Content-Type": "multipart/form-data" } },
+    { headers: { "Content-Type": "multipart/form-data" }, timeout: IMPORT_TIMEOUT_MS },
   )
   return res.data
 }
