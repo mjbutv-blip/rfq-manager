@@ -35,7 +35,11 @@ const QUOTE_TYPE_OPTIONS = [
 ]
 const ROUND_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8].map(round => ({ label: `第 ${round} 轮`, value: round }))
 
-function pct(value: number | null | undefined): string {
+function percentValue(value: number | null | undefined): string {
+  return value == null ? "—" : `${value.toFixed(1)}%`
+}
+
+function percentRatio(value: number | null | undefined): string {
   return value == null ? "—" : `${(value * 100).toFixed(1)}%`
 }
 
@@ -87,9 +91,9 @@ export default function FactorySupplyAnalysisPage() {
     { title: "参与询单数", dataIndex: "inquiry_count", width: 110, align: "right" },
     { title: "有效报价", dataIndex: "valid_quote_count", width: 100, align: "right" },
     { title: "最低价次数", dataIndex: "lowest_price_count", width: 110, align: "right" },
-    { title: "最低价率", dataIndex: "lowest_rate", width: 100, align: "right", render: pct },
+    { title: "最低价率", dataIndex: "lowest_rate", width: 100, align: "right", render: percentValue },
     { title: "被选用次数", dataIndex: "selected_count", width: 110, align: "right" },
-    { title: "中标率", dataIndex: "selected_rate", width: 100, align: "right", render: pct },
+    { title: "中标率", dataIndex: "selected_rate", width: 100, align: "right", render: percentValue },
     { title: "平均排名", dataIndex: "avg_rank", width: 100, align: "right", render: v => num(v) },
     { title: "平均报价", dataIndex: "avg_price", width: 120, align: "right", render: v => num(v) },
     {
@@ -113,7 +117,7 @@ export default function FactorySupplyAnalysisPage() {
     { title: "最低价", dataIndex: "lowest_price", width: 100, align: "right", render: v => num(v) },
     { title: "最高价", dataIndex: "highest_price", width: 100, align: "right", render: v => num(v) },
     { title: "差额", dataIndex: "spread_amount", width: 100, align: "right", render: v => num(v) },
-    { title: "差异百分比", dataIndex: "spread_pct", width: 120, align: "right", render: pct },
+    { title: "差异百分比", dataIndex: "spread_pct", width: 120, align: "right", render: percentRatio },
   ]
 
   return (
@@ -153,7 +157,7 @@ export default function FactorySupplyAnalysisPage() {
         <Col span={3}><Card size="small" loading={isFetching}><Text type="secondary" style={{ fontSize: 12 }}>可比较组数</Text><div style={{ fontSize: 20, fontWeight: 600 }}>{data?.summary.comparable_group_count ?? 0}</div></Card></Col>
         <Col span={3}><Card size="small" loading={isFetching}><Text type="secondary" style={{ fontSize: 12 }}>不可比较组数</Text><div style={{ fontSize: 20, fontWeight: 600, color: "#fa8c16" }}>{data?.summary.incomparable_group_count ?? 0}</div></Card></Col>
         <Col span={3}><Card size="small" loading={isFetching}><Text type="secondary" style={{ fontSize: 12 }}>被选用次数</Text><div style={{ fontSize: 20, fontWeight: 600 }}>{data?.summary.selected_quote_count ?? 0}</div></Card></Col>
-        <Col span={3}><Card size="small" loading={isFetching}><Text type="secondary" style={{ fontSize: 12 }}>平均价差比例</Text><div style={{ fontSize: 20, fontWeight: 600 }}>{pct(data?.summary.avg_spread_pct)}</div></Card></Col>
+        <Col span={3}><Card size="small" loading={isFetching}><Text type="secondary" style={{ fontSize: 12 }}>平均价差比例</Text><div style={{ fontSize: 20, fontWeight: 600 }}>{percentRatio(data?.summary.avg_spread_pct)}</div></Card></Col>
       </Row>
 
       {(data?.risk_signals ?? []).length > 0 ? (

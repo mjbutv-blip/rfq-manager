@@ -247,7 +247,7 @@ function buildFactorySupplyFromQuotes(quotes: FactoryQuoteListItem[]): FactorySu
       lowest_price_count: row.lowest_price_count,
       selected_count: 0,
       selected_rate: 0,
-      lowest_rate: row.valid_quote_count ? Math.round((row.lowest_price_count / row.valid_quote_count) * 1000) / 1000 : 0,
+      lowest_rate: row.valid_quote_count ? Math.round((row.lowest_price_count / row.valid_quote_count) * 1000) / 10 : 0,
       avg_rank: avg(row.ranks),
       avg_price: unitConsistent ? avg(row.prices) : null,
       currency_unit: Array.from(row.units).sort().join(", ") || "—",
