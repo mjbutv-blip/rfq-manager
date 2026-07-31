@@ -34,7 +34,7 @@ const { RangePicker } = DatePicker
 const YEAR_OPTIONS = [2026, 2025, 2024, 2023].map(year => ({ label: String(year), value: year }))
 
 function pct(rate: number | null | undefined): string {
-  return rate == null ? "—" : `${(rate * 100).toFixed(1)}%`
+  return rate == null ? "—" : `${rate.toFixed(1)}%`
 }
 
 function money(value: number | null | undefined, prefix = "$"): string {
