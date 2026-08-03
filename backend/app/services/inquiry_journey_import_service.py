@@ -290,6 +290,8 @@ def _to_decimal(v: Any) -> Decimal | None:
     if isinstance(v, (int, float)):
         return Decimal(str(v))
     s = str(v).strip().replace(",", "")
+    if s.startswith("="):
+        return None
     s = re.sub(r"[^\d.\-]", "", s)
     if not s:
         return None
@@ -307,6 +309,8 @@ def _to_int(v: Any) -> int | None:
     if isinstance(v, float):
         return int(v)
     s = str(v)
+    if s.strip().startswith("="):
+        return None
     total_match = re.search(r"共\s*(\d[\d,]*)\s*件", s)
     if total_match:
         return int(total_match.group(1).replace(",", ""))
