@@ -105,34 +105,45 @@ type ExcelField = { label: string; value: ReactNode; highlight?: boolean }
 function ExcelTwoRowTable({ fields, groups }: { fields?: ExcelField[]; groups?: ExcelField[][] }) {
   const rows = groups ?? (fields ? [fields] : [])
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ minWidth: 900, width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-        <tbody>
-          {rows.flatMap((row, rowIndex) => [
-            <tr key={`labels-${rowIndex}`}>
+    <div style={{ overflowX: "auto", width: "100%" }}>
+      {rows.map((row, rowIndex) => (
+        <table
+          key={rowIndex}
+          style={{
+            minWidth: Math.max(900, row.length * 150),
+            width: "100%",
+            borderCollapse: "collapse",
+            tableLayout: "fixed",
+            marginTop: rowIndex === 0 ? 0 : -1,
+          }}
+        >
+          <tbody>
+            <tr>
               {row.map(f => (
                 <th key={f.label} style={{
                   background: C_LABEL_BG, border: "1px solid #bfbfbf", padding: "6px 8px",
-                  textAlign: "center", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap",
+                  textAlign: "center", fontSize: 12, fontWeight: 600, whiteSpace: "normal",
+                  lineHeight: 1.35, wordBreak: "break-word",
                 }}>
                   {f.label}
                 </th>
               ))}
-            </tr>,
-            <tr key={`values-${rowIndex}`}>
+            </tr>
+            <tr>
               {row.map(f => (
                 <td key={f.label} style={{
                   background: f.highlight ? "#fff7e6" : "#fff", border: "1px solid #d9d9d9",
                   padding: "8px 8px", textAlign: "center", fontSize: 13,
                   color: f.highlight ? "#d4380d" : undefined, fontWeight: f.highlight ? 700 : 400,
+                  lineHeight: 1.35, wordBreak: "break-word",
                 }}>
                   {f.value}
                 </td>
               ))}
-            </tr>,
-          ])}
-        </tbody>
-      </table>
+            </tr>
+          </tbody>
+        </table>
+      ))}
     </div>
   )
 }
