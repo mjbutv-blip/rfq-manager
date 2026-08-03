@@ -10,7 +10,13 @@ class QuoteItemBase(BaseModel):
     quote_round: int = 1
     order_quantity: int | None = None
     calc_quantity: int | None = None
+    batch_shipment_count: float | None = None
     port_misc_fee_cny: float | None = None
+    test_fee_cny: float | None = None
+    misc_fee_cny: float | None = None
+    included_other_fee_cny: float | None = None
+    pieces_per_card: int | None = None
+    destination_port_count: int | None = None
     exchange_rate: float | None = None
     factory1_name: str | None = None
     factory1_price_cny: float | None = None
@@ -30,7 +36,12 @@ class QuoteItemBase(BaseModel):
     customer_target_price_usd: float | None = None
     quote_vs_target_ratio: float | None = None
     target_gap_cny: float | None = None
+    target_profit_value: float | None = None
+    target_price_gap_usd: float | None = None
+    reverse_target_profit_value: float | None = None
     reverse_target_price_cny: float | None = None
+    target_gross_profit_cny: float | None = None
+    target_trade_amount_usd: float | None = None
     gross_profit_cny: float | None = None
     gross_profit_pct: float | None = None
     order_status: str | None = None
@@ -51,10 +62,30 @@ class QuoteItemCreate(QuoteItemBase):
 
 
 class QuoteItemUpdate(BaseModel):
+    order_quantity: int | None = None
+    calc_quantity: int | None = None
+    batch_shipment_count: float | None = None
+    port_misc_fee_cny: float | None = None
+    test_fee_cny: float | None = None
+    misc_fee_cny: float | None = None
+    included_other_fee_cny: float | None = None
+    pieces_per_card: int | None = None
+    destination_port_count: int | None = None
+    exchange_rate: float | None = None
+    net_profit_pct: float | None = None
+    commission_pct: float | None = None
     selected_factory: str | None = None
     selected_factory_price_cny: float | None = None
     final_quote_usd: float | None = None
     customer_target_price_usd: float | None = None
+    quote_vs_target_ratio: float | None = None
+    target_gap_cny: float | None = None
+    target_profit_value: float | None = None
+    target_price_gap_usd: float | None = None
+    reverse_target_profit_value: float | None = None
+    reverse_target_price_cny: float | None = None
+    target_gross_profit_cny: float | None = None
+    target_trade_amount_usd: float | None = None
     gross_profit_cny: float | None = None
     gross_profit_pct: float | None = None
     order_status: str | None = None

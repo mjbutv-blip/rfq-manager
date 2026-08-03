@@ -49,7 +49,13 @@ export interface JourneyFirstRoundQuoteItem {
   quote_round: number
   order_quantity: number | null
   calc_quantity: number | null
+  batch_shipment_count: number | null
   port_misc_fee_cny: number | null
+  test_fee_cny: number | null
+  misc_fee_cny: number | null
+  included_other_fee_cny: number | null
+  pieces_per_card: number | null
+  destination_port_count: number | null
   exchange_rate: number | null
   net_profit_pct: number | null
   commission_pct: number | null
@@ -59,7 +65,12 @@ export interface JourneyFirstRoundQuoteItem {
   customer_target_price_usd: number | null
   quote_vs_target_ratio: number | null
   target_gap_cny: number | null
+  target_profit_value: number | null
+  target_price_gap_usd: number | null
+  reverse_target_profit_value: number | null
   reverse_target_price_cny: number | null
+  target_gross_profit_cny: number | null
+  target_trade_amount_usd: number | null
   current_exchange_rate: number | null
   gross_profit_cny: number | null
   trade_amount_usd: number | null

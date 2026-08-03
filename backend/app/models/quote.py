@@ -29,7 +29,13 @@ class QuoteItem(Base):
     # 基本参数
     order_quantity: Mapped[int | None] = mapped_column(Integer)
     calc_quantity: Mapped[int | None] = mapped_column(Integer)
+    batch_shipment_count: Mapped[float | None] = mapped_column(Numeric(10, 4))
     port_misc_fee_cny: Mapped[float | None] = mapped_column(Numeric(10, 4))
+    test_fee_cny: Mapped[float | None] = mapped_column(Numeric(10, 4))
+    misc_fee_cny: Mapped[float | None] = mapped_column(Numeric(10, 4))
+    included_other_fee_cny: Mapped[float | None] = mapped_column(Numeric(10, 4))
+    pieces_per_card: Mapped[int | None] = mapped_column(Integer)
+    destination_port_count: Mapped[int | None] = mapped_column(Integer)
     exchange_rate: Mapped[float | None] = mapped_column(Numeric(8, 4))
 
     # 工厂报价（最多3家）
@@ -57,7 +63,12 @@ class QuoteItem(Base):
     customer_target_price_usd: Mapped[float | None] = mapped_column(Numeric(12, 4))
     quote_vs_target_ratio: Mapped[float | None] = mapped_column(Numeric(6, 4))
     target_gap_cny: Mapped[float | None] = mapped_column(Numeric(10, 4))
+    target_profit_value: Mapped[float | None] = mapped_column(Numeric(12, 4))
+    target_price_gap_usd: Mapped[float | None] = mapped_column(Numeric(10, 4))
+    reverse_target_profit_value: Mapped[float | None] = mapped_column(Numeric(12, 4))
     reverse_target_price_cny: Mapped[float | None] = mapped_column(Numeric(12, 4))
+    target_gross_profit_cny: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    target_trade_amount_usd: Mapped[float | None] = mapped_column(Numeric(14, 2))
     gross_profit_cny: Mapped[float | None] = mapped_column(Numeric(14, 2))
     gross_profit_pct: Mapped[float | None] = mapped_column(Numeric(6, 2))
 

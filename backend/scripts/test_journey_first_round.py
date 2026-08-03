@@ -46,7 +46,13 @@ def quote_item(selected_factory: str | None = "B厂", selected_price: float | No
         quote_round=1,
         order_quantity=1000,
         calc_quantity=900,
+        batch_shipment_count=Decimal("2"),
         port_misc_fee_cny=Decimal("1.2"),
+        test_fee_cny=Decimal("200"),
+        misc_fee_cny=Decimal("300"),
+        included_other_fee_cny=Decimal("0"),
+        pieces_per_card=2,
+        destination_port_count=1,
         exchange_rate=Decimal("7.2"),
         net_profit_pct=Decimal("12.5"),
         commission_pct=Decimal("3"),
@@ -56,7 +62,12 @@ def quote_item(selected_factory: str | None = "B厂", selected_price: float | No
         customer_target_price_usd=Decimal("2.3"),
         quote_vs_target_ratio=Decimal("1.0870"),
         target_gap_cny=Decimal("1.44"),
+        target_profit_value=Decimal("0.95"),
+        target_price_gap_usd=Decimal("0.2"),
+        reverse_target_profit_value=Decimal("0.95"),
         reverse_target_price_cny=Decimal("16.56"),
+        target_gross_profit_cny=Decimal("800"),
+        target_trade_amount_usd=Decimal("2300"),
         current_exchange_rate=Decimal("7.3"),
         gross_profit_cny=Decimal("1200"),
         trade_amount_usd=Decimal("2500"),
@@ -78,9 +89,22 @@ def main():
     q = view["quote_item"]
     assert q["order_quantity"] == 1000
     assert q["calc_quantity"] == 900
+    assert q["batch_shipment_count"] == 2.0
     assert q["port_misc_fee_cny"] == 1.2
+    assert q["test_fee_cny"] == 200.0
+    assert q["misc_fee_cny"] == 300.0
+    assert q["included_other_fee_cny"] == 0.0
+    assert q["pieces_per_card"] == 2
+    assert q["destination_port_count"] == 1
     assert q["customer_target_price_usd"] == 2.3
+    assert q["quote_vs_target_ratio"] == 1.087
     assert q["target_gap_cny"] == 1.44
+    assert q["target_profit_value"] == 0.95
+    assert q["target_price_gap_usd"] == 0.2
+    assert q["reverse_target_profit_value"] == 0.95
+    assert q["reverse_target_price_cny"] == 16.56
+    assert q["target_gross_profit_cny"] == 800.0
+    assert q["target_trade_amount_usd"] == 2300.0
     assert q["gross_profit_cny"] == 1200.0
 
     a = view["factory_analysis"]

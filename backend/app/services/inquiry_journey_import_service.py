@@ -42,12 +42,27 @@ INQUIRY_FIELD_LABELS = {
 QUOTE_FIELD_LABELS = {
     "order_quantity": "订单数量",
     "calc_quantity": "算价格数量",
+    "batch_shipment_count": "分批走货情况",
     "port_misc_fee_cny": "港杂费",
+    "test_fee_cny": "测试费",
+    "misc_fee_cny": "杂费",
+    "included_other_fee_cny": "包含验货/验厂/运费等其他费用",
+    "pieces_per_card": "每卡件数",
+    "destination_port_count": "目的港数量",
     "exchange_rate": "报价汇率",
+    "net_profit_pct": "净利润值",
     "commission_pct": "佣金",
     "customer_target_price_usd": "客户目标价",
+    "quote_vs_target_ratio": "给客人报的价格和目标价比例",
+    "target_profit_value": "按照达到目标价格的利润值",
+    "target_price_gap_usd": "达到目标价格要降的钱数",
+    "reverse_target_profit_value": "倒推给工厂目标价格时利润值",
+    "reverse_target_price_cny": "倒推给工厂的目标价格",
+    "target_gross_profit_cny": "达到目标价格毛利润额",
+    "target_trade_amount_usd": "达到目标价格贸易额",
     "current_exchange_rate": "当下汇率",
     "gross_profit_cny": "毛利润额",
+    "trade_amount_usd": "贸易额（美金）",
     "final_quote_usd": "给客人报的价格",
     "selected_factory": "选用工厂",
     "selected_factory_price_cny": "选用工厂价格",
@@ -62,28 +77,58 @@ DOMESTIC_ROUNDS = {
         "fields": {
             "order_quantity": "U",
             "calc_quantity": "V",
+            "batch_shipment_count": "W",
             "port_misc_fee_cny": "X",
+            "test_fee_cny": "Y",
+            "misc_fee_cny": "Z",
+            "included_other_fee_cny": "AA",
+            "pieces_per_card": "AB",
+            "destination_port_count": "AC",
             "exchange_rate": "AD",
+            "net_profit_pct": "AE",
             "commission_pct": "AF",
             "customer_target_price_usd": "BD",
+            "quote_vs_target_ratio": "BE",
+            "target_profit_value": "BF",
+            "target_price_gap_usd": "BG",
+            "reverse_target_profit_value": "BH",
+            "reverse_target_price_cny": "BI",
+            "target_gross_profit_cny": "BJ",
+            "target_trade_amount_usd": "BK",
             "current_exchange_rate": "BA",
             "gross_profit_cny": "BB",
+            "trade_amount_usd": "BC",
             "final_quote_usd": "AZ",
             "selected_factory": "AX",
             "selected_factory_price_cny": "AY",
         },
-        "factory_cols": ["AL", "AM", "AN", "AO", "AP", "AQ", "AR", "AS", "AT"],
+        "factory_cols": ["AG", "AH", "AI", "AJ", "AK", "AL", "AM", "AN", "AO", "AP", "AQ", "AR", "AS", "AT"],
     },
     2: {
         "fields": {
             "order_quantity": "BM",
             "calc_quantity": "BN",
+            "batch_shipment_count": "BO",
             "port_misc_fee_cny": "BP",
+            "test_fee_cny": "BQ",
+            "misc_fee_cny": "BR",
+            "included_other_fee_cny": "BS",
+            "pieces_per_card": "BT",
+            "destination_port_count": "BU",
             "exchange_rate": "BV",
+            "net_profit_pct": "BW",
             "commission_pct": "BX",
             "customer_target_price_usd": "CY",
+            "quote_vs_target_ratio": "CZ",
+            "target_profit_value": "DA",
+            "target_price_gap_usd": "DB",
+            "reverse_target_profit_value": "DC",
+            "reverse_target_price_cny": "DD",
+            "target_gross_profit_cny": "DE",
+            "target_trade_amount_usd": "DF",
             "current_exchange_rate": "CS",
             "gross_profit_cny": "CT",
+            "trade_amount_usd": "CU",
             "final_quote_usd": "CR",
             "selected_factory": "CP",
             "selected_factory_price_cny": "CQ",
@@ -94,12 +139,27 @@ DOMESTIC_ROUNDS = {
         "fields": {
             "order_quantity": "DH",
             "calc_quantity": "DI",
+            "batch_shipment_count": "DJ",
             "port_misc_fee_cny": "DK",
+            "test_fee_cny": "DL",
+            "misc_fee_cny": "DM",
+            "included_other_fee_cny": "DN",
+            "pieces_per_card": "DO",
+            "destination_port_count": "DP",
             "exchange_rate": "DQ",
+            "net_profit_pct": "DR",
             "commission_pct": "DS",
             "customer_target_price_usd": "ET",
+            "quote_vs_target_ratio": "EU",
+            "target_profit_value": "EV",
+            "target_price_gap_usd": "EW",
+            "reverse_target_profit_value": "EX",
+            "reverse_target_price_cny": "EY",
+            "target_gross_profit_cny": "EZ",
+            "target_trade_amount_usd": "FA",
             "current_exchange_rate": "EN",
             "gross_profit_cny": "EO",
+            "trade_amount_usd": "EP",
             "final_quote_usd": "EM",
             "selected_factory": "EK",
             "selected_factory_price_cny": "EL",
@@ -110,12 +170,27 @@ DOMESTIC_ROUNDS = {
         "fields": {
             "order_quantity": "FC",
             "calc_quantity": "FD",
+            "batch_shipment_count": "FE",
             "port_misc_fee_cny": "FF",
+            "test_fee_cny": "FG",
+            "misc_fee_cny": "FH",
+            "included_other_fee_cny": "FI",
+            "pieces_per_card": "FJ",
+            "destination_port_count": "FK",
             "exchange_rate": "FL",
+            "net_profit_pct": "FM",
             "commission_pct": "FN",
             "customer_target_price_usd": "GO",
+            "quote_vs_target_ratio": "GP",
+            "target_profit_value": "GQ",
+            "target_price_gap_usd": "GR",
+            "reverse_target_profit_value": "GS",
+            "reverse_target_price_cny": "GT",
+            "target_gross_profit_cny": "GU",
+            "target_trade_amount_usd": "GV",
             "current_exchange_rate": "GI",
             "gross_profit_cny": "GJ",
+            "trade_amount_usd": "GK",
             "final_quote_usd": "GH",
             "selected_factory": "GF",
             "selected_factory_price_cny": "GG",
@@ -326,9 +401,6 @@ def _parse_workbook(file_bytes: bytes) -> tuple[dict[str, ParsedInquiry], dict[s
                 _add_value(parsed.inquiry_fields, ExcelValue(field, label, converter(cell.value), "总表", cell.coordinate), parsed)
 
             for field, label, col in (
-                ("测试费", "测试费", "Y"),
-                ("杂费", "杂费", "Z"),
-                ("净利润值", "净利润值", "AE"),
                 ("系列为 0 或 —— 的处理", "系列", "C"),
             ):
                 val = _clean_str(_cell(ws, r, col).value)
@@ -348,7 +420,7 @@ def _parse_workbook(file_bytes: bytes) -> tuple[dict[str, ParsedInquiry], dict[s
                 for field, col in cfg["fields"].items():
                     label = QUOTE_FIELD_LABELS[field]
                     cell = _cell(ws, r, col)
-                    converter = _to_int if field in {"order_quantity", "calc_quantity"} else (_clean_str if field == "selected_factory" else _to_decimal)
+                    converter = _to_int if field in {"order_quantity", "calc_quantity", "pieces_per_card", "destination_port_count"} else (_clean_str if field == "selected_factory" else _to_decimal)
                     value = converter(cell.value)
                     if field == "selected_factory":
                         value = _clean_factory_name(value)
@@ -512,6 +584,41 @@ def _same_value(a: Any, b: Any) -> bool:
     return str(a).strip() == str(b).strip()
 
 
+def _is_tk_customer(inq: Inquiry) -> bool:
+    values = [
+        getattr(inq, "customer_code", None),
+        getattr(inq, "customer_short_name", None),
+        getattr(inq, "customer_name", None),
+    ]
+    return any(str(v).strip().upper() == "TK" for v in values if v)
+
+
+def _apply_tk_port_misc_logic(parsed: ParsedInquiry, inq: Inquiry) -> None:
+    """
+    TK 港杂费规则来自《港杂费用计算表格.xls》的 TK sheet：
+    每轮港杂费 = 分批走货情况（港口数量*分批走货） * 固定收费 1000 RMB。
+    """
+    if not _is_tk_customer(inq):
+        return
+    fixed_fee = Decimal("1000")
+    for (quote_type, round_no), fields in parsed.quote_fields.items():
+        if quote_type != DOMESTIC:
+            continue
+        batch = fields.get("batch_shipment_count")
+        batch_value = _to_decimal(batch.value if batch else None)
+        if batch_value is None:
+            continue
+        source_sheet = batch.source_sheet if batch else "TK港杂费规则"
+        source_cell = f"{batch.source_cell}×1000" if batch else "分批走货情况×1000"
+        fields["port_misc_fee_cny"] = ExcelValue(
+            "port_misc_fee_cny",
+            QUOTE_FIELD_LABELS["port_misc_fee_cny"],
+            batch_value * fixed_fee,
+            source_sheet,
+            source_cell,
+        )
+
+
 async def _find_factory(db: AsyncSession, name: str) -> tuple[uuid.UUID | None, str]:
     row = (await db.execute(
         select(Factory).where(or_(Factory.factory_name == name, Factory.factory_short_name == name))
@@ -642,6 +749,7 @@ async def preview_journey_import(db: AsyncSession, file_bytes: bytes, file_name:
             })
             continue
 
+        _apply_tk_port_misc_logic(parsed, inq)
         parsed_inquiry_fields = _inquiry_fields_with_uploader(parsed, user)
         inquiry_fields = [
             _field_preview(v, getattr(inq, k, None), f"{inquiry_no}|inquiry|{k}", "inquiries")
@@ -796,6 +904,7 @@ async def confirm_journey_import(db: AsyncSession, file_bytes: bytes, file_name:
             summary["row_errors"].append({"inquiry_no": inquiry_no, "error": "无权更新该询单"})
             continue
 
+        _apply_tk_port_misc_logic(parsed, inq)
         try:
             async with db.begin_nested():
                 inquiry_updates: dict[str, Any] = {}

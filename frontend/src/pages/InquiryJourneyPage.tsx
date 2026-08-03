@@ -245,12 +245,15 @@ function FirstRoundBaseParams({ firstRound }: { firstRound: JourneyFirstRound })
   const basicFields: ExcelField[] = [
     { label: "订单数量", value: dash(q?.order_quantity) },
     { label: "算价格数量", value: dash(q?.calc_quantity) },
-    { label: "分批走货情况", value: "—" },
+    { label: "分批走货情况", value: dash(q?.batch_shipment_count) },
     { label: "港杂费", value: money(q?.port_misc_fee_cny) },
-    { label: "测试费", value: "—" },
-    { label: "杂费", value: "—" },
+    { label: "测试费", value: money(q?.test_fee_cny) },
+    { label: "杂费", value: money(q?.misc_fee_cny) },
+    { label: "包含验货/验厂/运费等其他费用", value: money(q?.included_other_fee_cny) },
+    { label: "每卡件数", value: dash(q?.pieces_per_card) },
+    { label: "目的港数量", value: dash(q?.destination_port_count) },
     { label: "报价汇率", value: dash(q?.exchange_rate) },
-    { label: "净利润值", value: q?.net_profit_pct == null ? "—" : `${q.net_profit_pct}%` },
+    { label: "净利润值", value: dash(q?.net_profit_pct) },
     { label: "佣金", value: q?.commission_pct == null ? "—" : `${q.commission_pct}%` },
   ]
   const resultFields: ExcelField[] = [
@@ -262,8 +265,14 @@ function FirstRoundBaseParams({ firstRound }: { firstRound: JourneyFirstRound })
     { label: "贸易额（美金）", value: money(q?.trade_amount_usd) },
   ]
   const targetFields: ExcelField[] = [
-    { label: "客人目标价格", value: money(q?.customer_target_price_usd), highlight: true },
-    { label: "目标价格差", value: money(q?.target_gap_cny) },
+    { label: "目标价", value: money(q?.customer_target_price_usd), highlight: true },
+    { label: "给客人报的价格和目标价比例", value: ratioPct(q?.quote_vs_target_ratio), highlight: true },
+    { label: "按照达到目标价格的利润值", value: money(q?.target_profit_value) },
+    { label: "达到目标价格要降的钱数", value: money(q?.target_price_gap_usd ?? q?.target_gap_cny) },
+    { label: "倒推给工厂目标价格时利润值", value: money(q?.reverse_target_profit_value) },
+    { label: "倒推给工厂的目标价格", value: money(q?.reverse_target_price_cny) },
+    { label: "达到目标价格毛利润额", value: money(q?.target_gross_profit_cny) },
+    { label: "达到目标价格贸易额", value: money(q?.target_trade_amount_usd) },
   ]
   return (
     <div>
