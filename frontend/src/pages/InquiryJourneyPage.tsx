@@ -72,6 +72,15 @@ function quoteTypeName(v: string | null | undefined): string {
   return v === "overseas" ? "海外" : "国内"
 }
 
+function roundName(n: number): string {
+  const names = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
+  if (n >= 0 && n <= 10) return names[n]
+  if (n < 20) return `十${names[n - 10]}`
+  const tens = Math.floor(n / 10)
+  const ones = n % 10
+  return `${names[tens]}十${ones ? names[ones] : ""}`
+}
+
 function alertType(level?: string): "success" | "info" | "warning" | "error" {
   if (level === "success" || level === "error" || level === "warning") return level
   return "info"
@@ -858,7 +867,7 @@ function FirstRoundBlock({
 }
 
 function roundTitle(round: JourneyRound): string {
-  return `${quoteTypeName(round.quote_type)}第 ${round.quote_round} 轮报价`
+  return `${quoteTypeName(round.quote_type)}第${roundName(round.quote_round)}轮报价`
 }
 
 function roundQuotes(round: JourneyRound): JourneyFactoryQuoteBrief[] {
@@ -875,15 +884,15 @@ function UnifiedRoundBlock({ round }: { round: JourneyRound }) {
       </div>
       <div style={{ padding: 10 }}>
         <RoundPriceAnalysisSection
-          label={`第 ${round.quote_round} 轮工厂价格分析`}
+          label={`第${roundName(round.quote_round)}轮工厂价格分析`}
           analysis={round.price_analysis}
           quoteCount={items.length}
         />
         <FactoryQuoteDetails
-          label={`第 ${round.quote_round} 轮工厂报价明细`}
+          label={`第${roundName(round.quote_round)}轮工厂报价明细`}
           items={items}
           analysis={round.price_analysis}
-          emptyText={`暂无第 ${round.quote_round} 轮工厂报价明细`}
+          emptyText={`暂无第${roundName(round.quote_round)}轮工厂报价明细`}
         />
       </div>
     </div>
