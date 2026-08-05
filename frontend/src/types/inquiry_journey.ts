@@ -118,6 +118,17 @@ export interface JourneyFactoryRiskAnalysis {
   messages: JourneyAnalysisMessage[]
 }
 
+export interface JourneyFactorySelectionAdvice {
+  triggered: boolean
+  threshold_pct: number
+  gap_pct: number | null
+  lowest_factories: string[]
+  second_lowest_factories: string[]
+  risk_level: string | null
+  attention_factory_names: string[]
+  messages: JourneyAnalysisMessage[]
+}
+
 export interface JourneyHistoricalPriceReference {
   sample_count: number
   status: "ok" | "insufficient" | "no_data" | string
@@ -170,6 +181,7 @@ export interface JourneyCustomerTargetPriceAnalysis {
 export interface JourneyFirstRoundAnalysisBundle {
   factory_price_analysis: JourneyFirstRoundFactoryAnalysis
   factory_risk_analysis: JourneyFactoryRiskAnalysis
+  factory_selection_advice: JourneyFactorySelectionAdvice
   historical_price_reference: JourneyHistoricalPriceReference
   customer_target_price_analysis: JourneyCustomerTargetPriceAnalysis
   ai_analysis_prompt_data: Record<string, unknown>

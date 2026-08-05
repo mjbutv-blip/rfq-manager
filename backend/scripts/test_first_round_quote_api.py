@@ -115,7 +115,10 @@ async def main() -> None:
         assert fa["second_lowest_price"] == 12.0, fa
         assert data["factory_risk_analysis"]["risk_level"] == "blocked"
         assert "暂停合作" in data["factory_risk_analysis"]["risk_notes"]
+        assert data["factory_selection_advice"]["triggered"] is True
+        assert data["factory_selection_advice"]["attention_factory_names"] == ["FRAPI稳价工厂"]
         assert any("限制合作/暂停合作" in m["message"] for m in data["analysis_messages"])
+        assert any("建议关注第二低报价工厂" in m["title"] for m in data["analysis_messages"])
 
     await cleanup()
     print("first round quote api tests passed")

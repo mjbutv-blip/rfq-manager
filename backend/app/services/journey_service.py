@@ -21,6 +21,7 @@ from app.models.quote import QuoteItem
 
 LOWEST_GAP_WARN_PCT = 0.15
 LOWEST_GAP_STRONG_PCT = 0.25
+LOWEST_RISK_SECOND_LOWEST_ATTENTION_PCT = 0.15
 TARGET_GROSS_PROFIT_WARN_PCT = 0.15
 MIN_HISTORY_SAMPLE_SIZE = 5
 DOMESTIC = "domestic"
@@ -357,6 +358,47 @@ def build_factory_gap_messages(factory_analysis: dict[str, Any]) -> list[dict[st
     return []
 
 
+def build_factory_selection_advice(
+    factory_analysis: dict[str, Any],
+    factory_risk: dict[str, Any],
+) -> dict[str, Any]:
+    pct = factory_analysis.get("second_lowest_vs_lowest_pct")
+    risk_level = factory_risk.get("risk_level")
+    second_factories = factory_analysis.get("second_lowest_factories") or []
+    lowest_factories = factory_analysis.get("lowest_factories") or []
+    triggered = (
+        pct is not None
+        and pct >= LOWEST_RISK_SECOND_LOWEST_ATTENTION_PCT
+        and risk_level in {"high", "blocked"}
+        and bool(second_factories)
+    )
+
+    result = {
+        "triggered": triggered,
+        "threshold_pct": LOWEST_RISK_SECOND_LOWEST_ATTENTION_PCT,
+        "gap_pct": pct,
+        "lowest_factories": lowest_factories,
+        "second_lowest_factories": second_factories,
+        "risk_level": risk_level,
+        "attention_factory_names": second_factories if triggered else [],
+        "messages": [],
+    }
+    if not triggered:
+        return result
+
+    risk_text = "限制合作/暂停合作" if risk_level == "blocked" else "高风险"
+    result["messages"] = [{
+        "level": "error" if risk_level == "blocked" else "warning",
+        "title": "建议关注第二低报价工厂",
+        "message": (
+            f"最低价与第二低价差距达到 {pct * 100:.1f}%，且最低报价工厂存在{risk_text}记录。"
+            f"建议关注第二低报价工厂（{'、'.join(second_factories)}）作为更稳的备选方案，"
+            "并复核最低价与第二低价工厂的工艺、面料、数量、币种、单位和费用口径；最终需要人工确认。"
+        ),
+    }]
+    return result
+
+
 def _historical_summary(
     values: list[float],
     current_lowest: float | None,
@@ -558,6 +600,7 @@ def build_customer_target_price_analysis(quote_item: QuoteItem | None) -> dict[s
 def build_rule_analysis_messages(
     factory_analysis: dict[str, Any],
     factory_risk: dict[str, Any],
+    factory_selection_advice: dict[str, Any],
     historical: dict[str, Any],
     target: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -586,6 +629,7 @@ def build_rule_analysis_messages(
                 "当前选用工厂是否为最低价：" + ("是" if factory_analysis.get("selected_factory_is_lowest") else "否" if factory_analysis.get("selected_factory_is_lowest") is False else "—"),
                 f"选用工厂比最低价高 {factory_analysis.get('selected_factory_gap_amount') if factory_analysis.get('selected_factory_gap_amount') is not None else '—'}。",
                 *(m["message"] for m in factory_risk.get("messages", [])),
+                *(m["message"] for m in factory_selection_advice.get("messages", [])),
             ],
         },
         {
@@ -616,27 +660,31 @@ async def build_first_round_analysis_bundle(
     sorted_cards = sorted(cards, key=lambda c: (float(c.factory_price) if c.factory_price is not None else float("inf"), c.factory_name or "", c.created_at))
     factory_analysis = build_first_round_factory_analysis(sorted_cards, quote_item)
     factory_risk = await build_factory_risk_analysis(db, sorted_cards, factory_analysis)
+    factory_selection_advice = build_factory_selection_advice(factory_analysis, factory_risk)
     historical = await build_historical_price_reference(db, inquiry, quote_item, factory_analysis)
     target = build_customer_target_price_analysis(quote_item)
     analysis_messages = [
         *build_factory_gap_messages(factory_analysis),
         *factory_risk["messages"],
+        *factory_selection_advice["messages"],
         *target["messages"],
     ]
     ai_prompt_data = {
         "source": "rule_based_first_version",
         "factory_price_analysis": factory_analysis,
         "factory_risk_analysis": factory_risk,
+        "factory_selection_advice": factory_selection_advice,
         "historical_price_reference": historical,
         "customer_target_price_analysis": target,
     }
     return {
         "factory_price_analysis": factory_analysis,
         "factory_risk_analysis": factory_risk,
+        "factory_selection_advice": factory_selection_advice,
         "historical_price_reference": historical,
         "customer_target_price_analysis": target,
         "ai_analysis_prompt_data": ai_prompt_data,
-        "ai_analysis_messages": build_rule_analysis_messages(factory_analysis, factory_risk, historical, target),
+        "ai_analysis_messages": build_rule_analysis_messages(factory_analysis, factory_risk, factory_selection_advice, historical, target),
         "analysis_messages": analysis_messages,
     }
 

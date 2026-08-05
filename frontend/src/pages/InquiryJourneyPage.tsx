@@ -501,6 +501,16 @@ function AnalysisAlerts({ messages }: { messages: { level?: string; title: strin
 function FactoryDecisionAid({ analysis }: { analysis: JourneyFirstRoundAnalysisBundle }) {
   const fa = analysis.factory_price_analysis
   const risk = analysis.factory_risk_analysis
+  const advice = analysis.factory_selection_advice ?? {
+    triggered: false,
+    threshold_pct: 0.15,
+    gap_pct: null,
+    lowest_factories: [],
+    second_lowest_factories: [],
+    risk_level: null,
+    attention_factory_names: [],
+    messages: [],
+  }
   return (
     <div style={{ marginTop: 10 }}>
       <SectionTitle label="工厂选择辅助判断区" color={C_GREEN} />
@@ -510,8 +520,10 @@ function FactoryDecisionAid({ analysis }: { analysis: JourneyFirstRoundAnalysisB
         { label: "选用工厂比最低价高百分比", value: ratioPct(fa.selected_factory_gap_pct) },
         { label: "最低工厂风险等级", value: dash(risk.risk_level), highlight: risk.risk_level === "high" || risk.risk_level === "blocked" },
         { label: "最低工厂问题备注", value: dash(risk.risk_notes) },
+        { label: "建议关注工厂", value: joined(advice.attention_factory_names), highlight: advice.triggered },
+        { label: "需要人工确认", value: advice.triggered ? "是" : "—", highlight: advice.triggered },
       ]]} />
-      <AnalysisAlerts messages={analysis.analysis_messages.filter(m => ["最低报价差距较大", "最低报价差距明显", "最低报价工厂风险记录", "最低报价工厂限制合作", "工厂问题备注"].includes(m.title))} />
+      <AnalysisAlerts messages={analysis.analysis_messages.filter(m => ["最低报价差距较大", "最低报价差距明显", "最低报价工厂风险记录", "最低报价工厂限制合作", "工厂问题备注", "建议关注第二低报价工厂"].includes(m.title))} />
     </div>
   )
 }

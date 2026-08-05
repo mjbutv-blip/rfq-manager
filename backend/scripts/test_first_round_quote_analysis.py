@@ -14,6 +14,7 @@ from app.services.journey_service import (  # noqa: E402
     build_customer_target_price_analysis,
     build_factory_gap_messages,
     build_factory_risk_analysis,
+    build_factory_selection_advice,
     build_first_round_factory_analysis,
 )
 
@@ -123,6 +124,24 @@ async def test_factory_risk_messages():
     assert any("限制合作/暂停合作" in m["message"] for m in blocked["messages"])
 
 
+async def test_factory_selection_advice():
+    factory_id = uuid.uuid4()
+    cards = [quote("风险工厂", 100, factory_id=factory_id), quote("第二低工厂", 120)]
+    analysis = build_first_round_factory_analysis(cards, qitem(selected_factory="风险工厂", selected_factory_price_cny=Decimal("100")))
+    high_factory = SimpleNamespace(id=factory_id, factory_name="风险工厂", factory_short_name=None, risk_level="high", risk_notes=None, remark=None)
+    risk = await build_factory_risk_analysis(FakeDb(high_factory), cards, analysis)
+    advice = build_factory_selection_advice(analysis, risk)
+    assert advice["triggered"] is True
+    assert advice["attention_factory_names"] == ["第二低工厂"]
+    assert "建议关注第二低报价工厂" in advice["messages"][0]["title"]
+    assert "最终需要人工确认" in advice["messages"][0]["message"]
+
+    low_risk = {**risk, "risk_level": "low"}
+    assert build_factory_selection_advice(analysis, low_risk)["triggered"] is False
+    small_gap = build_first_round_factory_analysis([quote("风险工厂", 100, factory_id=factory_id), quote("第二低工厂", 110)], qitem())
+    assert build_factory_selection_advice(small_gap, risk)["triggered"] is False
+
+
 def test_historical_summary():
     insufficient = _historical_summary([90, 100, 110], current_lowest=80, selected_price=120)
     assert insufficient["status"] == "insufficient"
@@ -157,6 +176,7 @@ def main():
     test_mismatch_stable()
     test_gap_messages()
     asyncio.run(test_factory_risk_messages())
+    asyncio.run(test_factory_selection_advice())
     test_historical_summary()
     test_target_price_messages()
     print("first round quote analysis tests passed")
