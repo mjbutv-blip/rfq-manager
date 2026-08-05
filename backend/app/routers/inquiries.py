@@ -190,12 +190,13 @@ async def update_inquiry(inquiry_id: uuid.UUID, body: InquiryUpdate, db: DbDep, 
 
 @router.get("/{inquiry_id}/journey")
 async def get_inquiry_journey(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
-    from sqlalchemy import select
+    from sqlalchemy import func, select
     from app.models import Customer, Inquiry, QuoteItem
     from app.models.factory import Factory
     from app.models.factory_quote_record import FactoryQuoteRecord
     from app.models.inquiry_item import InquiryItem
     from app.services.journey_service import (
+        build_first_round_analysis_bundle,
         build_first_round_view,
         build_rounds,
         find_applicable_factory_quote,
@@ -238,6 +239,9 @@ async def get_inquiry_journey(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
         if q.quote_round == 1 and (q.quote_type or "domestic") == "domestic"
     ]
     first_round = build_first_round_view(first_round_quote_item, first_round_quotes)
+    first_round["analysis"] = await build_first_round_analysis_bundle(
+        db, inq, first_round_quote_item, first_round_quotes
+    )
 
     applicable_factory = None
     if inq.applicable_factory_id:
@@ -296,6 +300,36 @@ async def get_inquiry_journey(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
         "rounds": rounds,
         "can_edit": can_edit_inquiry(inq, user),
     }
+
+
+@router.post("/{inquiry_id}/quote-rounds/1/analyze")
+async def analyze_first_quote_round(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
+    from sqlalchemy import func, select
+    from app.models import Inquiry, QuoteItem
+    from app.models.factory_quote_record import FactoryQuoteRecord
+    from app.services.journey_service import build_first_round_analysis_bundle
+
+    inq = await db.get(Inquiry, inquiry_id)
+    if not inq:
+        raise HTTPException(status_code=404, detail="询单不存在")
+    if not can_view_inquiry(inq, user):
+        raise HTTPException(status_code=403, detail="无权访问该询单")
+
+    quote_item = (await db.execute(
+        select(QuoteItem).where(
+            QuoteItem.inquiry_id == inquiry_id,
+            QuoteItem.quote_round == 1,
+            QuoteItem.quote_type == "domestic",
+        )
+    )).scalars().first()
+    cards = (await db.execute(
+        select(FactoryQuoteRecord).where(
+            FactoryQuoteRecord.inquiry_id == inquiry_id,
+            FactoryQuoteRecord.quote_round == 1,
+            func.coalesce(FactoryQuoteRecord.quote_type, "domestic") == "domestic",
+        )
+    )).scalars().all()
+    return await build_first_round_analysis_bundle(db, inq, quote_item, list(cards))
 
 
 @router.get("/{inquiry_id}/warnings")

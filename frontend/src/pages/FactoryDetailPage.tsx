@@ -76,6 +76,7 @@ function FactoryEditor({ factory, canEdit }: { factory: FactoryDetail; canEdit: 
       payment_terms:         factory.payment_terms ?? undefined,
       cooperation_status:    factory.cooperation_status ?? undefined,
       risk_level:            factory.risk_level ?? undefined,
+      risk_notes:            factory.risk_notes ?? undefined,
       risk_tags:             factory.risk_tags ?? [],
       remark:                factory.remark ?? undefined,
     })
@@ -159,6 +160,12 @@ function FactoryEditor({ factory, canEdit }: { factory: FactoryDetail; canEdit: 
               </div>
             </Col>
           )}
+          {factory.risk_notes && (
+            <Col span={24} style={{ marginTop: 8 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>风险备注</Text>
+              <div style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{factory.risk_notes}</div>
+            </Col>
+          )}
           {factory.remark && (
             <Col span={24} style={{ marginTop: 8 }}>
               <Text type="secondary" style={{ fontSize: 12 }}>备注</Text>
@@ -203,6 +210,9 @@ function FactoryEditor({ factory, canEdit }: { factory: FactoryDetail; canEdit: 
           </Form.Item></Col>
           <Col span={6}><Form.Item name="risk_level" label="风险等级">
             <Select options={RISK_LEVEL_OPTIONS} allowClear />
+          </Form.Item></Col>
+          <Col span={24}><Form.Item name="risk_notes" label="风险备注">
+            <TextArea rows={2} placeholder="质量、交期、配合度或限制合作原因" />
           </Form.Item></Col>
           <Col span={3}><Form.Item name="moq" label="MOQ">
             <InputNumber style={{ width: "100%" }} min={0} />

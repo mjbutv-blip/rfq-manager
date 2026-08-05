@@ -13,6 +13,7 @@ export interface FactoryQuote {
   factory_id: string | null
   factory_name: string | null
   has_factory_profile: boolean
+  quote_type: string
   quote_round: number
   factory_price: number
   currency: string
@@ -35,6 +36,7 @@ export interface FactoryQuoteCreateBody {
   factory_id?: string | null
   factory_name?: string | null
   quote_round?: number | null
+  quote_type?: string
   factory_price: number
   currency?: string
   price_unit?: string
@@ -45,6 +47,7 @@ export interface FactoryQuoteUpdateBody {
   factory_id?: string | null
   factory_name?: string | null
   quote_round?: number
+  quote_type?: string
   factory_price?: number
   currency?: string
   price_unit?: string

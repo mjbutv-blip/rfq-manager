@@ -360,6 +360,11 @@ export default function FactoryListPage() {
                 <Select options={RISK_LEVEL_OPTIONS} allowClear placeholder="请选择" />
               </Form.Item>
             </Col>
+            <Col span={24}>
+              <Form.Item name="risk_notes" label="风险备注">
+                <Input.TextArea rows={2} placeholder="质量、交期、配合度或限制合作原因" />
+              </Form.Item>
+            </Col>
             <Col span={8}>
               <Form.Item name="moq" label="MOQ">
                 <InputNumber style={{ width: "100%" }} min={0} />

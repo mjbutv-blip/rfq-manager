@@ -37,6 +37,7 @@ class Factory(Base):
     cooperation_status: Mapped[str | None] = mapped_column(Text, index=True)
     # low / medium / high
     risk_level: Mapped[str | None] = mapped_column(Text, index=True)
+    risk_notes: Mapped[str | None] = mapped_column(Text)
     risk_tags: Mapped[list | None] = mapped_column(JSONB)
 
     remark: Mapped[str | None] = mapped_column(Text)

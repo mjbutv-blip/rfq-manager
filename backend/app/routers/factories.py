@@ -71,6 +71,7 @@ class FactoryCreate(BaseModel):
     payment_terms: str | None = None
     cooperation_status: str | None = None
     risk_level: str | None = None
+    risk_notes: str | None = None
     risk_tags: list[str] | None = None
     remark: str | None = None
 
@@ -93,6 +94,7 @@ class FactoryUpdate(BaseModel):
     payment_terms: str | None = None
     cooperation_status: str | None = None
     risk_level: str | None = None
+    risk_notes: str | None = None
     risk_tags: list[str] | None = None
     remark: str | None = None
 
@@ -151,6 +153,7 @@ def _factory_to_dict(factory: Factory, stats: dict | None = None) -> dict[str, A
         "payment_terms":        factory.payment_terms,
         "cooperation_status":   factory.cooperation_status,
         "risk_level":           factory.risk_level,
+        "risk_notes":           factory.risk_notes,
         "risk_tags":            factory.risk_tags or [],
         "remark":               factory.remark,
         "created_at":           factory.created_at.isoformat() if factory.created_at else None,

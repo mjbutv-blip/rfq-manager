@@ -59,7 +59,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const activeJwtUser = jwtUser ?? localUser
   const user: CurrentUser = token && activeJwtUser ? activeJwtUser : devUser
-  const isLoggedIn = !!token && !!activeJwtUser
+  const isLoggedIn = !!token
 
   const login = useCallback((newToken: string, newUser: CurrentUser) => {
     setStoredToken(newToken)

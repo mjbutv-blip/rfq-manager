@@ -189,7 +189,7 @@ async def find_or_create_factory(db: AsyncSession, factory_name: str) -> Factory
 
 _FACTORY_FIELDS = (
     "factory_code", "factory_name", "factory_short_name",
-    "country", "cooperation_status", "risk_level",
+    "country", "cooperation_status", "risk_level", "risk_notes",
     "price_position", "moq", "normal_lead_time_days",
 )
 

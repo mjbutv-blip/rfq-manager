@@ -30,6 +30,7 @@ export interface Factory {
   payment_terms: string | null
   cooperation_status: string | null
   risk_level: string | null
+  risk_notes: string | null
   risk_tags: string[]
   remark: string | null
   created_at: string | null
@@ -130,6 +131,7 @@ export interface FactoryUpdate {
   payment_terms?: string | null
   cooperation_status?: string | null
   risk_level?: string | null
+  risk_notes?: string | null
   risk_tags?: string[] | null
   remark?: string | null
 }
@@ -161,18 +163,21 @@ export const RISK_LEVEL_LABEL: Record<string, string> = {
   low:    "低",
   medium: "中",
   high:   "高",
+  blocked: "限制合作",
 }
 
 export const RISK_LEVEL_COLOR: Record<string, string> = {
   low:    "green",
   medium: "orange",
   high:   "red",
+  blocked: "red",
 }
 
 export const RISK_LEVEL_OPTIONS = [
   { label: "低", value: "low" },
   { label: "中", value: "medium" },
   { label: "高", value: "high" },
+  { label: "限制合作", value: "blocked" },
 ]
 
 export const PRICE_POSITION_LABEL: Record<string, string> = {
