@@ -196,71 +196,111 @@ function FieldGrid({ fields }: { fields: { label: string; value: ReactNode; high
   )
 }
 
-function factoryCell(c: JourneyFactoryQuoteBrief | null): { name: string; price: string } {
-  if (!c) return { name: "—", price: "—" }
-  return {
-    name: c.factory_name ?? "—",
-    price: c.factory_price != null ? `${money(c.factory_price)} ${c.currency ?? ""}/${c.price_unit ?? ""}` : "—",
-  }
-}
-
-function PriceAnalysisFields({ analysis }: { analysis: JourneyPriceAnalysis }) {
-  if (!analysis.comparable) {
-    const reasonText = analysis.reason === "mismatch"
-      ? "币种或单位不一致，暂不自动比较"
-      : analysis.reason === "no_price"
-      ? "暂无可比较的价格"
-      : "暂无报价"
-    return (
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <tbody>
-          <tr>
-            <td style={{ background: "#fff", textAlign: "center", padding: "16px 8px", border: "1px solid #d9d9d9", color: "#8c8c8c", fontSize: 12 }}>
-              {reasonText}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    )
-  }
+function RoundPriceAnalysisSection({
+  label,
+  analysis,
+  quoteCount,
+}: {
+  label: string
+  analysis: JourneyPriceAnalysis
+  quoteCount: number
+}) {
+  const reasonText = analysis.reason === "mismatch"
+    ? "币种或单位不一致，暂不自动比较"
+    : analysis.reason === "no_price"
+    ? "暂无可比较的价格"
+    : analysis.reason === "no_quotes"
+    ? "暂无报价"
+    : null
   return (
-    <FieldGrid fields={[
-      { label: "最低工厂", value: analysis.lowest_factories.join("、") || "—", highlight: true },
-      { label: "最低价格", value: analysis.lowest_price != null ? `${money(analysis.lowest_price)} ${analysis.currency}/${analysis.price_unit}` : "—", highlight: true },
-      { label: "第二低工厂", value: analysis.second_lowest_factories.join("、") || "—" },
-      { label: "第二低价格", value: analysis.second_lowest_price != null ? `${money(analysis.second_lowest_price)} ${analysis.currency}/${analysis.price_unit}` : "—" },
-    ]} />
+    <div style={{ marginTop: 4 }}>
+      <SectionTitle label={label} color={C_GREEN} />
+      {reasonText && (
+        <div style={{
+          background: "#fffbe6", border: "1px solid #ffe58f", borderBottom: 0,
+          padding: "8px 10px", color: "#8c6d1f", fontSize: 13,
+        }}>
+          {reasonText}
+        </div>
+      )}
+      <ExcelTwoRowTable groups={[[
+        { label: "参与报价工厂数量", value: quoteCount },
+        { label: "比较口径", value: analysis.comparable ? `${dash(analysis.currency)} / ${dash(analysis.price_unit)}` : "—" },
+        { label: "最低报价工厂", value: joined(analysis.lowest_factories), highlight: true },
+        { label: "最低报价", value: priceWithUnit(analysis.lowest_price, analysis.currency, analysis.price_unit), highlight: true },
+        { label: "第二低报价工厂", value: joined(analysis.second_lowest_factories) },
+        { label: "第二低报价", value: priceWithUnit(analysis.second_lowest_price, analysis.currency, analysis.price_unit) },
+      ]]} />
+    </div>
   )
 }
 
-function OtherFactoriesTable({ items }: { items: JourneyFactoryQuoteBrief[] }) {
-  if (items.length === 0) return null
+function factoryQuoteTags(
+  it: JourneyFactoryQuoteBrief,
+  analysis: JourneyPriceAnalysis | JourneyFirstRoundFactoryAnalysis,
+) {
+  const name = it.factory_name ?? ""
+  const isLowest = it.is_lowest || analysis.lowest_factories.includes(name)
+  const isSecondLowest = analysis.second_lowest_factories.includes(name)
+  const isHighest = it.is_highest || ("highest_factories" in analysis && analysis.highest_factories.includes(name))
+  const isSelected = it.is_selected
+  return { isLowest, isSecondLowest, isHighest, isSelected }
+}
+
+function FactoryQuoteDetails({
+  label,
+  items,
+  analysis,
+  emptyText,
+}: {
+  label: string
+  items: JourneyFactoryQuoteBrief[]
+  analysis: JourneyPriceAnalysis | JourneyFirstRoundFactoryAnalysis
+  emptyText: string
+}) {
   return (
-    <div style={{ marginTop: 4 }}>
-      <Text type="secondary" style={{ fontSize: 12, display: "block", padding: "4px 6px", background: "#fafafa" }}>
-        本轮其他工厂报价明细
-      </Text>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+    <div style={{ marginTop: 10 }}>
+      <SectionTitle label={label} color={C_LIGHT_BLUE} />
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <thead>
           <tr>
-            {["工厂", "工厂报价", "币种", "单位", "备注", "录入时间"].map(h => (
-              <th key={h} style={{ background: "#f0f0f0", border: "1px solid #d9d9d9", padding: "4px 6px", fontWeight: 500 }}>{h}</th>
+            {["工厂", "工厂报价", "币种", "单位", "标识", "备注", "来源", "录入时间"].map(h => (
+              <th key={h} style={{ background: "#f0f5ff", border: "1px solid #bfbfbf", padding: "7px 8px", textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {items.map(it => (
-            <tr key={it.id}>
-              <td style={{ border: "1px solid #d9d9d9", padding: "4px 6px", textAlign: "center" }}>{dash(it.factory_name)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "4px 6px", textAlign: "right" }}>{money(it.factory_price)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "4px 6px", textAlign: "center" }}>{dash(it.currency)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "4px 6px", textAlign: "center" }}>{dash(it.price_unit)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "4px 6px", textAlign: "center" }}>{dash(it.remark)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "4px 6px", textAlign: "center" }}>
-                {it.created_at ? new Date(it.created_at).toLocaleString("zh-CN") : "—"}
+          {items.length === 0 ? (
+            <tr>
+              <td colSpan={8} style={{ border: "1px solid #d9d9d9", padding: "16px 8px", textAlign: "center", color: "#8c8c8c" }}>
+                {emptyText}
               </td>
             </tr>
-          ))}
+          ) : items.map(it => {
+            const tags = factoryQuoteTags(it, analysis)
+            return (
+              <tr key={it.id}>
+                <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>{dash(it.factory_name)}</td>
+                <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "right" }}>{money(it.factory_price)}</td>
+                <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>{dash(it.currency)}</td>
+                <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>{dash(it.price_unit)}</td>
+                <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>
+                  <Space size={4} wrap>
+                    {tags.isLowest && <Tag color="green">最低</Tag>}
+                    {tags.isSecondLowest && <Tag color="gold">第二低</Tag>}
+                    {tags.isHighest && <Tag color="red">最高</Tag>}
+                    {tags.isSelected && <Tag color="blue">选用工厂</Tag>}
+                    {!tags.isLowest && !tags.isSecondLowest && !tags.isHighest && !tags.isSelected && <Text type="secondary">—</Text>}
+                  </Space>
+                </td>
+                <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>{dash(it.remark)}</td>
+                <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>{dash(it.source)}</td>
+                <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>
+                  {it.created_at ? new Date(it.created_at).toLocaleString("zh-CN") : "—"}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -563,53 +603,6 @@ function AiAnalysisHints({ analysis }: { analysis: JourneyFirstRoundAnalysisBund
   )
 }
 
-function FirstRoundFactoryDetails({ firstRound }: { firstRound: JourneyFirstRound }) {
-  const items = firstRound.factory_quotes
-  return (
-    <div style={{ marginTop: 10 }}>
-      <SectionTitle label="第一轮工厂报价明细" color={C_LIGHT_BLUE} />
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-        <thead>
-          <tr>
-            {["工厂", "工厂报价", "币种", "单位", "标识", "备注", "来源", "录入时间"].map(h => (
-              <th key={h} style={{ background: "#f0f5ff", border: "1px solid #bfbfbf", padding: "7px 8px", textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {items.length === 0 ? (
-            <tr>
-              <td colSpan={8} style={{ border: "1px solid #d9d9d9", padding: "16px 8px", textAlign: "center", color: "#8c8c8c" }}>
-                暂无第一轮国内工厂报价明细
-              </td>
-            </tr>
-          ) : items.map(it => (
-            <tr key={it.id}>
-              <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>{dash(it.factory_name)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "right" }}>{money(it.factory_price)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>{dash(it.currency)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>{dash(it.price_unit)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>
-                <Space size={4} wrap>
-                  {it.is_lowest && <Tag color="green">最低</Tag>}
-                  {it.is_highest && <Tag color="red">最高</Tag>}
-                  {it.is_selected && <Tag color="blue">选用工厂</Tag>}
-                  {!it.is_lowest && !it.is_highest && !it.is_selected && <Text type="secondary">—</Text>}
-                </Space>
-              </td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>{dash(it.remark)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>{dash(it.source)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>
-                {it.created_at ? new Date(it.created_at).toLocaleString("zh-CN") : "—"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
 interface FirstRoundQuoteForm {
   factory_id: string | null
   factory_name: string
@@ -848,7 +841,12 @@ function FirstRoundBlock({
           onSaved={onSaved}
         />
         <FirstRoundFactoryAnalysis analysis={analysis.factory_price_analysis} />
-        <FirstRoundFactoryDetails firstRound={firstRound} />
+        <FactoryQuoteDetails
+          label="第一轮工厂报价明细"
+          items={firstRound.factory_quotes}
+          analysis={analysis.factory_price_analysis}
+          emptyText="暂无第一轮国内工厂报价明细"
+        />
         <FirstRoundFactoryQuoteEditor inquiryId={inquiryId} firstRound={firstRound} canEdit={canEdit} />
         <FactoryDecisionAid analysis={analysis} />
         <HistoricalPriceReference historical={analysis.historical_price_reference} />
@@ -859,30 +857,35 @@ function FirstRoundBlock({
   )
 }
 
-function RoundBlock({ round }: { round: JourneyRound }) {
-  const f1 = factoryCell(round.factory1)
-  const f2 = factoryCell(round.factory2)
+function roundTitle(round: JourneyRound): string {
+  return `${quoteTypeName(round.quote_type)}第 ${round.quote_round} 轮报价`
+}
+
+function roundQuotes(round: JourneyRound): JourneyFactoryQuoteBrief[] {
+  return [round.factory1, round.factory2, ...round.other_factories].filter((it): it is JourneyFactoryQuoteBrief => Boolean(it))
+}
+
+function UnifiedRoundBlock({ round }: { round: JourneyRound }) {
+  const title = roundTitle(round)
+  const items = roundQuotes(round)
   return (
-    <div style={{ marginBottom: 16, border: "1px solid #d9d9d9" }}>
-      <div style={{ background: "#262626", color: "#fff", padding: "4px 10px", fontSize: 13, fontWeight: 600 }}>
-        {quoteTypeName(round.quote_type)}第 {round.quote_round} 轮报价
+    <div style={{ marginBottom: 16, border: "1px solid #d9d9d9", background: "#fff" }}>
+      <div style={{ background: "#262626", color: "#fff", padding: "6px 10px", fontSize: 14, fontWeight: 700 }}>
+        {title}
       </div>
-      <BandRow bands={[
-        { label: "工厂报价（含税含运费/元/件）", color: C_ORANGE, span: 2 },
-        { label: "工厂价格分析", color: C_GREEN, span: 2 },
-      ]} />
-      <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-        <tbody>
-          <tr>
-            <td style={{ width: "12.5%" }}><FieldGrid fields={[{ label: "工厂1名称（含税含运费）", value: f1.name }]} /></td>
-            <td style={{ width: "12.5%" }}><FieldGrid fields={[{ label: "工厂1价格", value: f1.price }]} /></td>
-            <td style={{ width: "12.5%" }}><FieldGrid fields={[{ label: "工厂2名称（含税含运费）", value: f2.name }]} /></td>
-            <td style={{ width: "12.5%" }}><FieldGrid fields={[{ label: "工厂2价格", value: f2.price }]} /></td>
-            <td colSpan={4} style={{ width: "50%" }}><PriceAnalysisFields analysis={round.price_analysis} /></td>
-          </tr>
-        </tbody>
-      </table>
-      <OtherFactoriesTable items={round.other_factories} />
+      <div style={{ padding: 10 }}>
+        <RoundPriceAnalysisSection
+          label={`第 ${round.quote_round} 轮工厂价格分析`}
+          analysis={round.price_analysis}
+          quoteCount={items.length}
+        />
+        <FactoryQuoteDetails
+          label={`第 ${round.quote_round} 轮工厂报价明细`}
+          items={items}
+          analysis={round.price_analysis}
+          emptyText={`暂无第 ${round.quote_round} 轮工厂报价明细`}
+        />
+      </div>
     </div>
   )
 }
@@ -1036,7 +1039,7 @@ export default function InquiryJourneyPage() {
                 </Button>
               </div>
             ) : (
-              otherRounds.map(r => <RoundBlock key={`${r.quote_type}-${r.quote_round}`} round={r} />)
+              otherRounds.map(r => <UnifiedRoundBlock key={`${r.quote_type}-${r.quote_round}`} round={r} />)
             )}
           </div>
 
