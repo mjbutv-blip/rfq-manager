@@ -9,7 +9,7 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Alert, Button, Col, Form, InputNumber, Row, Select, Space, Spin, Table, Tag, Typography, message } from "antd"
+import { Alert, Button, Form, InputNumber, Select, Space, Spin, Tag, Typography, message } from "antd"
 import { ArrowLeftOutlined, CalculatorOutlined, PlusOutlined, SaveOutlined } from "@ant-design/icons"
 
 import { analyzeFirstQuoteRound, createFirstRoundQuoteItem, fetchInquiryJourney, updateQuoteItem, type QuoteItemUpdateBody } from "@/api/inquiry_journey"
@@ -18,17 +18,15 @@ import type {
   JourneyFirstRound,
   JourneyFirstRoundAnalysisBundle,
   JourneyFirstRoundFactoryAnalysis,
-  JourneyHistoricalPriceReference,
   InquiryJourney,
   JourneyPriceAnalysis,
   JourneyRound,
 } from "@/types/inquiry_journey"
 
-const { Title, Text } = Typography
+const { Text } = Typography
 
 // ── 颜色层级（不要求与 Excel 像素级一致，只保留分区识别度）─────────────────────
 const C_DARK_BLUE = "#1f3864"
-const C_ORANGE = "#ed7d31"
 const C_GREEN = "#70ad47"
 const C_LIGHT_BLUE = "#bdd7ee"
 const C_LABEL_BG = "#dce6f1"
@@ -320,54 +318,28 @@ function FactoryQuoteDetails({
   )
 }
 
-function FirstRoundQuoteDetailsTemplate({
-  firstRound,
-  analysis,
-}: {
-  firstRound: JourneyFirstRound
-  analysis: JourneyFirstRoundFactoryAnalysis
-}) {
-  const items = firstRound.factory_quotes
+function analysisReason(analysis: JourneyFirstRoundFactoryAnalysis): string | null {
+  if (analysis.comparable) return null
+  if (analysis.reason === "mismatch") return "币种或单位不一致，暂不进行价格比较"
+  if (analysis.reason === "no_price") return "暂无有效工厂报价，暂不进行价格比较"
+  return "暂无第一轮国内工厂报价"
+}
+
+function AnalysisAlerts({ messages }: { messages: { level?: string; title: string; message?: string }[] }) {
+  if (!messages.length) return null
   return (
-    <div style={{ marginTop: 0 }}>
-      <SectionTitle label="第一轮报价明细" color={C_DARK_BLUE} />
-      <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 12 }}>
-        <thead>
-          <tr>
-            {["安排报价日期", "工厂报价日期", "工厂名称", "工厂价格（/件）", "币种", "价格比对情况", "价格相差比率"].map(h => (
-              <th key={h} style={{ background: C_LABEL_BG, border: "1px solid #bfbfbf", padding: "6px 6px", textAlign: "center", lineHeight: 1.35, wordBreak: "break-word" }}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {items.length === 0 ? (
-            <tr>
-              <td colSpan={7} style={{ border: "1px solid #d9d9d9", padding: "14px 8px", textAlign: "center", color: "#8c8c8c" }}>
-                暂无第一轮国内工厂报价明细
-              </td>
-            </tr>
-          ) : items.map(it => (
-            <tr key={it.id}>
-              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "center" }}>—</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "center" }}>{dateText(it.quoted_at ?? it.created_at)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "center", wordBreak: "break-word" }}>{dash(it.factory_name)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "right" }}>{money(it.factory_price)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "center" }}>{dash(it.currency)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "center" }}>{quoteRankLabel(it, analysis)}</td>
-              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "center" }}>{quoteGapRatio(it, analysis)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Space direction="vertical" style={{ width: "100%", marginTop: 8 }} size={8}>
+      {messages.map((m, idx) => (
+        <Alert key={`${m.title}-${idx}`} type={alertType(m.level)} showIcon message={m.title} description={m.message} />
+      ))}
+    </Space>
   )
 }
 
-function FirstRoundBaseParams({
+function FirstRoundExcelSheet({
   firstRound,
   inquiryId,
+  analysis,
   canEdit,
   onRecalculate,
   recalculating,
@@ -375,6 +347,7 @@ function FirstRoundBaseParams({
 }: {
   firstRound: JourneyFirstRound
   inquiryId: string
+  analysis: JourneyFirstRoundAnalysisBundle
   canEdit: boolean
   onRecalculate: () => void
   recalculating: boolean
@@ -383,13 +356,17 @@ function FirstRoundBaseParams({
   const [form] = Form.useForm()
   const [msgApi, ctx] = message.useMessage()
   const queryClient = useQueryClient()
+  const [showSamples, setShowSamples] = useState(false)
   const q = firstRound.quote_item
+  const fa = analysis.factory_price_analysis
+  const risk = analysis.factory_risk_analysis
+  const historical = analysis.historical_price_reference
+  const target = analysis.customer_target_price_analysis
+  const advice = analysis.factory_selection_advice
   const factoryOptions = Array.from(new Set(firstRound.factory_quotes.map(f => f.factory_name).filter(Boolean) as string[]))
     .map(name => ({ label: name, value: name }))
   const saveMutation = useMutation({
-    mutationFn: (values: QuoteItemUpdateBody) => {
-      return q?.id ? updateQuoteItem(q.id, values) : createFirstRoundQuoteItem(inquiryId, values)
-    },
+    mutationFn: (values: QuoteItemUpdateBody) => q?.id ? updateQuoteItem(q.id, values) : createFirstRoundQuoteItem(inquiryId, values),
     onSuccess: async () => {
       msgApi.success(q?.id ? "已保存报价参数" : "已创建第一轮报价参数")
       await Promise.all([
@@ -407,282 +384,201 @@ function FirstRoundBaseParams({
   useEffect(() => {
     form.setFieldsValue({
       order_quantity: q?.order_quantity ?? null,
+      pieces_per_card: q?.pieces_per_card ?? null,
       calc_quantity: q?.calc_quantity ?? null,
-      batch_shipment_count: q?.batch_shipment_count ?? null,
-      port_misc_fee_cny: q?.port_misc_fee_cny ?? null,
-      test_fee_cny: q?.test_fee_cny ?? null,
       misc_fee_cny: q?.misc_fee_cny ?? null,
       included_other_fee_cny: q?.included_other_fee_cny ?? null,
-      pieces_per_card: q?.pieces_per_card ?? null,
+      test_fee_cny: q?.test_fee_cny ?? null,
+      batch_shipment_count: q?.batch_shipment_count ?? null,
       destination_port_count: q?.destination_port_count ?? null,
-      exchange_rate: q?.exchange_rate ?? null,
-      net_profit_pct: q?.net_profit_pct ?? null,
+      port_misc_fee_cny: q?.port_misc_fee_cny ?? null,
       commission_pct: q?.commission_pct ?? null,
+      exchange_rate: q?.exchange_rate ?? null,
       selected_factory: q?.selected_factory ?? null,
       selected_factory_price_cny: q?.selected_factory_price_cny ?? null,
+      net_profit_pct: q?.net_profit_pct ?? null,
       final_quote_usd: q?.final_quote_usd ?? null,
       current_exchange_rate: q?.current_exchange_rate ?? null,
       customer_target_price_usd: q?.customer_target_price_usd ?? null,
     })
   }, [form, q])
 
+  const border = "1px solid #8c8c8c"
+  const cell = (content: ReactNode, opts: { colSpan?: number; header?: boolean; yellow?: boolean; strong?: boolean; height?: number; align?: "center" | "right" | "left"; muted?: boolean } = {}) => (
+    <td colSpan={opts.colSpan} style={{
+      border,
+      background: opts.yellow ? "#ffff00" : "#fff",
+      color: opts.muted ? "#8c8c8c" : undefined,
+      fontWeight: opts.header || opts.strong || opts.yellow ? 700 : 400,
+      textAlign: opts.align ?? "center",
+      verticalAlign: "middle",
+      height: opts.height ?? 30,
+      padding: "5px 6px",
+      fontSize: 12,
+      lineHeight: 1.35,
+      wordBreak: "break-word",
+    }}>{content}</td>
+  )
+  const input = (name: keyof QuoteItemUpdateBody, precision = 4) => (
+    <Form.Item noStyle name={name}>
+      <InputNumber size="small" controls={false} min={0} precision={precision} style={{ width: "100%" }} />
+    </Form.Item>
+  )
+  const selectedRankText = fa.selected_factory_rank == null ? "—" : fa.selected_factory_rank === 1 ? "最低" : fa.selected_factory_rank === 2 ? "第二低" : `第${fa.selected_factory_rank}低`
+  const targetFeasible = target.target_has_profit == null ? "—" : target.target_has_profit ? (target.target_gross_profit_rate != null && target.target_gross_profit_rate >= 0.15 ? "有利润空间" : "利润较薄") : "可能亏损"
+  const displayQuoteRows = [...firstRound.factory_quotes, ...Array(Math.max(0, 3 - firstRound.factory_quotes.length)).fill(null)] as (JourneyFactoryQuoteBrief | null)[]
+  const factoryMessages = analysis.analysis_messages.filter(m => ["最低报价差距较大", "最低报价差距明显", "最低报价工厂风险记录", "最低报价工厂限制合作", "工厂问题备注", "建议关注第二低报价工厂"].includes(m.title))
+  const reason = analysisReason(fa)
+
   return (
     <div>
       {ctx}
-      <SectionTitle label="价格计算" color={C_ORANGE} />
-      {!q && (
-        <Alert
-          type="info"
-          showIcon
-          style={{ borderRadius: 0, borderBottom: 0 }}
-          message="当前询单尚未创建第一轮国内报价参数记录，填写后可直接保存创建。"
-        />
-      )}
-      <Form form={form} layout="vertical" size="small" disabled={!canEdit} onFinish={values => saveMutation.mutate(values)}>
-        <div style={{ padding: 10, border: "1px solid #d9d9d9", borderTop: 0 }}>
-          {[
-            [
-              ["订单数量", "order_quantity", 0],
-              ["每卡件数", "pieces_per_card", 0],
-              ["算价格数量", "calc_quantity", 0],
-            ],
-            [
-              ["杂费", "misc_fee_cny", 4],
-              ["包含验货/验厂/运费等其他费用", "included_other_fee_cny", 4],
-              ["测试费", "test_fee_cny", 4],
-            ],
-            [
-              ["分批走货", "batch_shipment_count", 4],
-              ["目的港数量", "destination_port_count", 0],
-              ["港杂费", "port_misc_fee_cny", 4],
-            ],
-            [
-              ["佣金", "commission_pct", 2],
-              ["报价汇率", "exchange_rate", 4],
-              ["净利润值", "net_profit_pct", 2],
-            ],
-            [
-              ["选取工厂价格", "selected_factory_price_cny", 4],
-              ["客人价格", "final_quote_usd", 4],
-              ["客人目标价格", "customer_target_price_usd", 4],
-            ],
-          ].map((row, idx) => (
-            <Row gutter={8} key={idx}>
-              {row.map(([label, name, precision]) => (
-                <Col span={8} key={String(name)}>
-                  <Form.Item label={label} name={name as string} style={{ marginBottom: 8 }}>
-                    <InputNumber style={{ width: "100%" }} min={0} precision={precision as number} />
-                  </Form.Item>
-                </Col>
-              ))}
-            </Row>
-          ))}
-          <Row gutter={8}>
-            <Col span={8}>
-              <Form.Item label="选取工厂" name="selected_factory" style={{ marginBottom: 8 }}>
-                <Select allowClear showSearch options={factoryOptions} placeholder="需要人工确认" />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item label="当下汇率" name="current_exchange_rate" style={{ marginBottom: 8 }}>
-                <InputNumber style={{ width: "100%" }} min={0} precision={4} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <ExcelTwoRowTable groups={[[
-            { label: "毛利润额（人民币）", value: money(q?.gross_profit_cny), highlight: true },
-            { label: "贸易额（美金）", value: money(q?.trade_amount_usd), highlight: true },
-          ]]} />
-          <Space style={{ marginTop: 12 }}>
-            <Button icon={<CalculatorOutlined />} onClick={onRecalculate} loading={recalculating}>
-              重新计算
-            </Button>
-            <Button type="primary" icon={<SaveOutlined />} htmlType="submit" loading={saveMutation.isPending} disabled={!canEdit}>
-              保存报价参数
-            </Button>
-            {!canEdit && <Text type="secondary">当前账号只读，不能保存修改。</Text>}
-          </Space>
-        </div>
+      {!q && <Alert type="info" showIcon style={{ borderRadius: 0, marginBottom: 8 }} message="当前询单尚未创建第一轮国内报价参数记录，填写后可直接保存创建。" />}
+      <Form form={form} disabled={!canEdit} onFinish={values => saveMutation.mutate(values)}>
+        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff" }}>
+          <colgroup>{Array.from({ length: 10 }).map((_, i) => <col key={i} style={{ width: "10%" }} />)}</colgroup>
+          <tbody>
+            <tr>{cell("第一轮报价", { colSpan: 10, yellow: true, height: 36 })}</tr>
+            <tr>
+              {["安排报价日期", "工厂报价日期", "工厂名称", "工厂价格（/件）", "币种", "价格比对情况", "价格相差比率"].map(h => cell(h, { header: true, height: 28 }))}
+              {cell("", { colSpan: 3 })}
+            </tr>
+            {displayQuoteRows.map((it, idx) => (
+              <tr key={it?.id ?? `empty-${idx}`}>
+                {cell("—", { muted: !it })}
+                {cell(it ? dateText(it.quoted_at ?? it.created_at) : "—", { muted: !it })}
+                {cell(dash(it?.factory_name), { muted: !it })}
+                {cell(money(it?.factory_price), { align: "right", muted: !it })}
+                {cell(dash(it?.currency), { muted: !it })}
+                {cell(it ? quoteRankLabel(it, fa) : "—", { muted: !it })}
+                {cell(it ? quoteGapRatio(it, fa) : "—", { muted: !it })}
+                {cell("", { colSpan: 3 })}
+              </tr>
+            ))}
+            {reason && <tr>{cell(reason, { colSpan: 10, muted: true })}</tr>}
+            <tr>{cell("", { colSpan: 10, height: 18 })}</tr>
+            <tr>
+              {cell("价格计算", { colSpan: 5, yellow: true, height: 36 })}
+              {cell("工厂辅助判断区", { colSpan: 5, yellow: true, height: 36 })}
+            </tr>
+            <tr>
+              {["订单数量", "每卡件数", "算价格数量", "杂费", "包含验货，验厂，海运/空运费（客人要求我们报价需要包含运费的情况）其他费用"].map(h => cell(h, { height: 54 }))}
+              {cell("选用工厂价位情况", { height: 54 })}
+              {cell("选用工厂同最低工厂百分比", { height: 54 })}
+              {cell("选用工厂风险等级", { colSpan: 3, height: 54 })}
+            </tr>
+            <tr>
+              {cell(input("order_quantity", 0))}
+              {cell(input("pieces_per_card", 0))}
+              {cell(input("calc_quantity", 0))}
+              {cell(input("misc_fee_cny"))}
+              {cell(input("included_other_fee_cny"))}
+              {cell(selectedRankText, { strong: fa.selected_factory_rank != null })}
+              {cell(ratioPct(fa.selected_factory_gap_pct), { strong: fa.selected_factory_gap_pct != null })}
+              {cell(dash(risk.risk_level), { colSpan: 3, strong: risk.risk_level === "high" || risk.risk_level === "blocked" })}
+            </tr>
+            <tr>
+              {["测试费", "分批走货", "目的港数量", "港杂费", "佣金"].map(h => cell(h))}
+              {cell("历史价格参考区", { colSpan: 5, yellow: true })}
+            </tr>
+            <tr>
+              {cell(input("test_fee_cny"))}
+              {cell(input("batch_shipment_count"))}
+              {cell(input("destination_port_count", 0))}
+              {cell(input("port_misc_fee_cny"))}
+              {cell(input("commission_pct", 2))}
+              {cell("类似款式数量")}
+              {cell("历史最低价")}
+              {cell("历史最高价")}
+              {cell("历史平均价格", { colSpan: 2 })}
+            </tr>
+            <tr>
+              {["报价汇率", "选取工厂", "选取工厂价格", "净利润值", "客人价格"].map(h => cell(h))}
+              {cell(historical.samples.length > 0 ? <Button type="link" size="small" onClick={() => setShowSamples(v => !v)}>{historical.sample_count}</Button> : historical.sample_count, { strong: historical.sample_count > 0 })}
+              {cell(priceWithUnit(historical.historical_lowest_price, historical.currency, historical.price_unit))}
+              {cell(priceWithUnit(historical.historical_highest_price, historical.currency, historical.price_unit))}
+              {cell(priceWithUnit(historical.historical_average_price, historical.currency, historical.price_unit), { colSpan: 2 })}
+            </tr>
+            <tr>
+              {cell(input("exchange_rate"))}
+              {cell(<Form.Item noStyle name="selected_factory"><Select size="small" allowClear showSearch options={factoryOptions} placeholder="需要人工确认" /></Form.Item>)}
+              {cell(input("selected_factory_price_cny"))}
+              {cell(input("net_profit_pct", 2))}
+              {cell(input("final_quote_usd"))}
+              {cell("", { colSpan: 5 })}
+            </tr>
+            <tr>
+              {cell("当下汇率")}
+              {cell("毛利润额（人民币）", { colSpan: 2 })}
+              {cell("贸易额（美金）", { colSpan: 2 })}
+              {cell("", { colSpan: 5 })}
+            </tr>
+            <tr>
+              {cell(input("current_exchange_rate"))}
+              {cell(money(q?.gross_profit_cny), { colSpan: 2, strong: true })}
+              {cell(money(q?.trade_amount_usd), { colSpan: 2, strong: true })}
+              {cell("最低工厂问题备注")}
+              {cell(dash(risk.risk_notes), { colSpan: 4, align: "left" })}
+            </tr>
+            <tr>{cell("目标价分析", { colSpan: 10, yellow: true, height: 36 })}</tr>
+            <tr>
+              {["目标价", "倒推给工厂目标价格时利润值", "倒推给工厂的目标价格", "达到目标价格毛利润额", "达到目标价格贸易额", "目标价格是否合理", "达到目标价格要降的钱数", "给客人报的价格和目标价比例", "按照达到目标价格的利润值"].map(h => cell(h, { header: true, height: 58 }))}
+              {cell("")}
+            </tr>
+            <tr>
+              {cell(input("customer_target_price_usd"))}
+              {cell(money(q?.reverse_target_profit_value))}
+              {cell(money(q?.reverse_target_price_cny), { strong: true })}
+              {cell(money(target.target_gross_profit_cny ?? q?.target_gross_profit_cny), { strong: true })}
+              {cell(money(target.target_sales_amount_usd ?? q?.target_trade_amount_usd))}
+              {cell(targetFeasible, { strong: true })}
+              {cell(signedMoney(target.target_vs_current_diff ?? q?.target_price_gap_usd ?? q?.target_gap_cny), { strong: true })}
+              {cell(ratioPct(q?.quote_vs_target_ratio ?? target.target_vs_current_diff_pct))}
+              {cell(money(q?.target_profit_value))}
+              {cell("")}
+            </tr>
+            <tr>
+              {cell("", { colSpan: 5, height: 72 })}
+              {cell(target.messages[0]?.message ?? "此处根据目标价、工厂价、费用、佣金和订单量生成分析提示。", { colSpan: 5, align: "left", height: 72 })}
+            </tr>
+            <tr>{cell("AI分析提示区", { colSpan: 10, yellow: true, height: 40 })}</tr>
+          </tbody>
+        </table>
+        <Space style={{ marginTop: 10 }}>
+          <Button icon={<CalculatorOutlined />} onClick={onRecalculate} loading={recalculating}>重新计算</Button>
+          <Button type="primary" icon={<SaveOutlined />} htmlType="submit" loading={saveMutation.isPending} disabled={!canEdit}>保存报价参数</Button>
+          {!canEdit && <Text type="secondary">当前账号只读，不能保存修改。</Text>}
+        </Space>
       </Form>
-    </div>
-  )
-}
-
-function analysisReason(analysis: JourneyFirstRoundFactoryAnalysis): string | null {
-  if (analysis.comparable) return null
-  if (analysis.reason === "mismatch") return "币种或单位不一致，暂不进行价格比较"
-  if (analysis.reason === "no_price") return "暂无有效工厂报价，暂不进行价格比较"
-  return "暂无第一轮国内工厂报价"
-}
-
-function FirstRoundFactoryAnalysis({ analysis }: { analysis: JourneyFirstRoundFactoryAnalysis }) {
-  const reason = analysisReason(analysis)
-  const marketFields: ExcelField[] = [
-    { label: "参与报价工厂数量", value: analysis.quote_count },
-    { label: "有效报价数量", value: analysis.valid_quote_count },
-    { label: "最低报价工厂", value: joined(analysis.lowest_factories), highlight: true },
-    { label: "最低报价", value: priceWithUnit(analysis.lowest_price, analysis.currency, analysis.price_unit), highlight: true },
-    { label: "第二低报价工厂", value: joined(analysis.second_lowest_factories) },
-    { label: "第二低报价", value: priceWithUnit(analysis.second_lowest_price, analysis.currency, analysis.price_unit) },
-  ]
-  const distributionFields: ExcelField[] = [
-    { label: "最高报价工厂", value: joined(analysis.highest_factories) },
-    { label: "最高报价", value: priceWithUnit(analysis.highest_price, analysis.currency, analysis.price_unit) },
-    { label: "平均报价", value: priceWithUnit(analysis.average_price, analysis.currency, analysis.price_unit) },
-    { label: "中位数报价", value: priceWithUnit(analysis.median_price, analysis.currency, analysis.price_unit) },
-    { label: "最高价 - 最低价", value: priceWithUnit(analysis.spread_amount, analysis.currency, analysis.price_unit) },
-    { label: "最高价相比最低价高百分比", value: ratioPct(analysis.spread_pct), highlight: true },
-  ]
-  const selectedFields: ExcelField[] = [
-    { label: "第二低价比最低价高百分比", value: ratioPct(analysis.second_lowest_vs_lowest_pct), highlight: true },
-    { label: "选用工厂", value: dash(analysis.selected_factory), highlight: true },
-    { label: "选用工厂价格", value: priceWithUnit(analysis.selected_factory_price, analysis.currency, analysis.price_unit), highlight: true },
-    { label: "选用工厂价格排名", value: analysis.selected_factory_rank == null ? "—" : `第 ${analysis.selected_factory_rank} 名` },
-    { label: "选用工厂比最低价高多少", value: priceWithUnit(analysis.selected_factory_gap_amount, analysis.currency, analysis.price_unit) },
-    { label: "选用工厂比最低价高百分比", value: ratioPct(analysis.selected_factory_gap_pct) },
-    { label: "选用工厂是否最低价", value: analysis.selected_factory_is_lowest == null ? "—" : analysis.selected_factory_is_lowest ? "是" : "否", highlight: true },
-  ]
-  return (
-    <div style={{ marginTop: 10 }}>
-      <SectionTitle label="第一轮工厂价格分析" color={C_GREEN} />
-      {reason && (
-        <div style={{
-          background: "#fffbe6", border: "1px solid #ffe58f", borderBottom: 0,
-          padding: "8px 10px", color: "#8c6d1f", fontSize: 13,
-        }}>
-          {reason}
+      {showSamples && historical.samples.length > 0 && (
+        <div style={{ marginTop: 8, border: "1px solid #d9d9d9", padding: 8, background: "#fff" }}>
+          <Text type="secondary" style={{ display: "block", marginBottom: 6 }}>历史样本明细</Text>
+          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 12 }}>
+            <tbody>
+              <tr>{["客人代码", "询单号", "品类", "品名", "数量", "工厂", "价格", "订单状态"].map(h => cell(h, { header: true }))}</tr>
+              {historical.samples.slice(0, 8).map(s => (
+                <tr key={`${s.inquiry_id}-${s.factory_name}-${s.factory_price}`}>
+                  {cell(dash(s.customer_code))}
+                  {cell(dash(s.inquiry_no))}
+                  {cell(dash(s.product_category))}
+                  {cell(dash(s.product_name))}
+                  {cell("—")}
+                  {cell(dash(s.factory_name))}
+                  {cell(priceWithUnit(s.factory_price, s.currency, s.price_unit))}
+                  {cell(dash(s.order_status))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
-      <ExcelTwoRowTable groups={[marketFields, distributionFields, selectedFields]} />
+      <AnalysisAlerts messages={[...factoryMessages, ...target.messages]} />
+      {advice?.triggered && <AnalysisAlerts messages={advice.messages} />}
+      <AiAnalysisHints analysis={analysis} />
     </div>
   )
 }
 
-function AnalysisAlerts({ messages }: { messages: { level?: string; title: string; message?: string }[] }) {
-  if (!messages.length) return null
-  return (
-    <Space direction="vertical" style={{ width: "100%", marginTop: 8 }} size={8}>
-      {messages.map((m, idx) => (
-        <Alert key={`${m.title}-${idx}`} type={alertType(m.level)} showIcon message={m.title} description={m.message} />
-      ))}
-    </Space>
-  )
-}
-
-function FactoryDecisionAid({ analysis }: { analysis: JourneyFirstRoundAnalysisBundle }) {
-  const fa = analysis.factory_price_analysis
-  const risk = analysis.factory_risk_analysis
-  const advice = analysis.factory_selection_advice ?? {
-    triggered: false,
-    threshold_pct: 0.15,
-    gap_pct: null,
-    lowest_factories: [],
-    second_lowest_factories: [],
-    risk_level: null,
-    attention_factory_names: [],
-    messages: [],
-  }
-  return (
-    <div style={{ marginTop: 10 }}>
-      <SectionTitle label="工厂选择辅助判断区" color={C_GREEN} />
-      <ExcelTwoRowTable groups={[[
-        { label: "选用工厂是否最低价", value: fa.selected_factory_is_lowest == null ? "—" : fa.selected_factory_is_lowest ? "是" : "否", highlight: true },
-        { label: "选用工厂比最低价高多少", value: priceWithUnit(fa.selected_factory_gap_amount, fa.currency, fa.price_unit) },
-        { label: "选用工厂比最低价高百分比", value: ratioPct(fa.selected_factory_gap_pct) },
-        { label: "最低工厂风险等级", value: dash(risk.risk_level), highlight: risk.risk_level === "high" || risk.risk_level === "blocked" },
-        { label: "最低工厂问题备注", value: dash(risk.risk_notes) },
-        { label: "建议关注工厂", value: joined(advice.attention_factory_names), highlight: advice.triggered },
-        { label: "需要人工确认", value: advice.triggered ? "是" : "—", highlight: advice.triggered },
-      ]]} />
-      <AnalysisAlerts messages={analysis.analysis_messages.filter(m => ["最低报价差距较大", "最低报价差距明显", "最低报价工厂风险记录", "最低报价工厂限制合作", "工厂问题备注", "建议关注第二低报价工厂"].includes(m.title))} />
-    </div>
-  )
-}
-
-function HistoricalPriceReference({ historical }: { historical: JourneyHistoricalPriceReference }) {
-  const [showSamples, setShowSamples] = useState(false)
-  const columns = [
-    { title: "询单号", dataIndex: "inquiry_no", width: 120 },
-    { title: "客户", dataIndex: "customer_short_name", width: 120, render: (v: string | null, r: { customer_code: string | null }) => v || r.customer_code || "—" },
-    { title: "品类", dataIndex: "product_category", width: 90, render: (v: string | null) => dash(v) },
-    { title: "品名", dataIndex: "product_name", width: 140, render: (v: string | null) => dash(v) },
-    { title: "系列", dataIndex: "series_name", width: 120, render: (v: string | null) => dash(v) },
-    { title: "工厂", dataIndex: "factory_name", width: 140, render: (v: string | null) => dash(v) },
-    { title: "价格", dataIndex: "factory_price", width: 90, align: "right" as const, render: (v: number | null, r: { currency: string | null; price_unit: string | null }) => priceWithUnit(v, r.currency, r.price_unit) },
-    { title: "询单日期", dataIndex: "inquiry_date", width: 110, render: (v: string | null) => dash(v) },
-    { title: "订单状态", dataIndex: "order_status", width: 100, render: (v: string | null) => dash(v) },
-  ]
-  return (
-    <div style={{ marginTop: 10 }}>
-      <SectionTitle label="历史价格参考区" color={C_LIGHT_BLUE} />
-      {historical.message && (
-        <Alert type={historical.status === "no_data" ? "info" : "warning"} showIcon style={{ borderRadius: 0, borderBottom: 0 }} message={historical.message} />
-      )}
-      <ExcelTwoRowTable groups={[[
-        { label: "类似款式数量", value: historical.samples.length > 0 ? <Button type="link" size="small" onClick={() => setShowSamples(v => !v)}>{historical.sample_count}</Button> : historical.sample_count, highlight: historical.sample_count > 0 },
-        { label: "历史最低价", value: priceWithUnit(historical.historical_lowest_price, historical.currency, historical.price_unit) },
-        { label: "历史最高价", value: priceWithUnit(historical.historical_highest_price, historical.currency, historical.price_unit) },
-        { label: "历史平均价", value: priceWithUnit(historical.historical_average_price, historical.currency, historical.price_unit) },
-      ], [
-        { label: "历史中位数价", value: priceWithUnit(historical.historical_median_price, historical.currency, historical.price_unit) },
-        { label: "常规价格区间 P25", value: priceWithUnit(historical.normal_price_range_low, historical.currency, historical.price_unit), highlight: true },
-        { label: "常规价格区间 P75", value: priceWithUnit(historical.normal_price_range_high, historical.currency, historical.price_unit), highlight: true },
-        { label: "当前最低价低于历史区间", value: historical.current_lowest_below_range == null ? "—" : historical.current_lowest_below_range ? "是" : "否" },
-        { label: "当前选用工厂价高于历史区间", value: historical.selected_price_above_range == null ? "—" : historical.selected_price_above_range ? "是" : "否" },
-      ]]} />
-      {historical.samples.length > 0 && showSamples && (
-        <div style={{ border: "1px solid #d9d9d9", borderTop: 0, padding: 10, background: "#fff" }}>
-          <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>历史样本明细</Text>
-          <Table
-            rowKey={r => `${r.inquiry_id}-${r.factory_name}-${r.factory_price}`}
-            columns={columns}
-            dataSource={historical.samples}
-            size="small"
-            pagination={{ pageSize: 5, size: "small" }}
-          />
-        </div>
-      )}
-    </div>
-  )
-}
-
-function CustomerTargetAnalysis({
-  analysis,
-  quoteItem,
-}: {
-  analysis: JourneyFirstRoundAnalysisBundle
-  quoteItem: JourneyFirstRound["quote_item"]
-}) {
-  const target = analysis.customer_target_price_analysis
-  const feasible = target.target_has_profit == null
-    ? "—"
-    : target.target_has_profit
-    ? (target.target_gross_profit_rate != null && target.target_gross_profit_rate >= 0.15 ? "有利润空间" : "利润较薄")
-    : "可能亏损"
-  return (
-    <div style={{ marginTop: 10 }}>
-      <SectionTitle label="目标价分析" color={C_ORANGE} />
-      <ExcelTwoRowTable groups={[[
-        { label: "目标价", value: money(target.customer_target_price_usd), highlight: true },
-        { label: "倒推给工厂目标价格时利润值", value: money(quoteItem?.reverse_target_profit_value) },
-        { label: "倒推给工厂的目标价格", value: money(quoteItem?.reverse_target_price_cny), highlight: true },
-      ], [
-        { label: "达到目标价格毛利润额", value: money(target.target_gross_profit_cny ?? quoteItem?.target_gross_profit_cny), highlight: true },
-        { label: "达到目标价格贸易额", value: money(target.target_sales_amount_usd ?? quoteItem?.target_trade_amount_usd) },
-        { label: "目标价格是否合理", value: feasible, highlight: true },
-      ], [
-        { label: "达到目标价格要降的钱数", value: signedMoney(target.target_vs_current_diff ?? quoteItem?.target_price_gap_usd ?? quoteItem?.target_gap_cny), highlight: true },
-        { label: "给客人报的价格和目标价比例", value: ratioPct(quoteItem?.quote_vs_target_ratio ?? target.target_vs_current_diff_pct) },
-        { label: "按照达到目标价格的利润值", value: money(quoteItem?.target_profit_value) },
-      ], [
-        { label: "按目标价预计销售额", value: money(target.target_sales_amount_usd) },
-        { label: "按目标价预计毛利率", value: ratioPct(target.target_gross_profit_rate), highlight: true },
-        { label: "缺少关键字段", value: target.missing_fields.length ? target.missing_fields.join("、") : "—" },
-      ]]} />
-      <AnalysisAlerts messages={target.messages} />
-    </div>
-  )
-}
 
 function AiAnalysisHints({ analysis }: { analysis: JourneyFirstRoundAnalysisBundle }) {
   return (
@@ -756,32 +652,16 @@ function FirstRoundBlock({
   onSaved: () => void
 }) {
   return (
-    <div style={{ marginBottom: 16, border: "1px solid #d9d9d9", background: "#fff" }}>
-      <div style={{ background: "#262626", color: "#fff", padding: "6px 10px", fontSize: 14, fontWeight: 700 }}>
-        第一轮报价
-      </div>
-      <div style={{ padding: 10 }}>
-        <FirstRoundQuoteDetailsTemplate firstRound={firstRound} analysis={analysis.factory_price_analysis} />
-        <FirstRoundFactoryAnalysis analysis={analysis.factory_price_analysis} />
-        <Row gutter={12} align="top">
-          <Col span={12}>
-            <CustomerTargetAnalysis analysis={analysis} quoteItem={firstRound.quote_item} />
-            <FirstRoundBaseParams
-              firstRound={firstRound}
-              inquiryId={inquiryId}
-              canEdit={canEdit}
-              onRecalculate={onRecalculate}
-              recalculating={recalculating}
-              onSaved={onSaved}
-            />
-          </Col>
-          <Col span={12}>
-            <FactoryDecisionAid analysis={analysis} />
-            <HistoricalPriceReference historical={analysis.historical_price_reference} />
-          </Col>
-        </Row>
-        <AiAnalysisHints analysis={analysis} />
-      </div>
+    <div style={{ marginBottom: 16, background: "#fff" }}>
+      <FirstRoundExcelSheet
+        firstRound={firstRound}
+        inquiryId={inquiryId}
+        analysis={analysis}
+        canEdit={canEdit}
+        onRecalculate={onRecalculate}
+        recalculating={recalculating}
+        onSaved={onSaved}
+      />
     </div>
   )
 }
@@ -874,7 +754,6 @@ export default function InquiryJourneyPage() {
 
           {/* 工厂报价轮次（核心区域） */}
           <div style={{ marginTop: 16 }}>
-            <Title level={5} style={{ marginBottom: 8 }}>几轮报价综合分析</Title>
             <FirstRoundBlock
               firstRound={first_round}
               inquiryId={id!}
