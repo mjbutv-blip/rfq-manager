@@ -68,6 +68,10 @@ function priceWithUnit(value: number | null | undefined, currency?: string | nul
   return `${money(value)}${suffix ? ` ${suffix}` : ""}`
 }
 
+function dateText(v: string | null | undefined): string {
+  return v ? new Date(v).toLocaleDateString("zh-CN") : "—"
+}
+
 function quoteTypeName(v: string | null | undefined): string {
   return v === "overseas" ? "海外" : "国内"
 }
@@ -257,6 +261,29 @@ function factoryQuoteTags(
   return { isLowest, isSecondLowest, isHighest, isSelected }
 }
 
+function quoteRankLabel(it: JourneyFactoryQuoteBrief, analysis: JourneyPriceAnalysis | JourneyFirstRoundFactoryAnalysis): string {
+  const tags = factoryQuoteTags(it, analysis)
+  if (tags.isLowest) return "最低"
+  if (tags.isSecondLowest) return "第二低"
+  const price = it.factory_price
+  if (price == null || !analysis.comparable) return "—"
+  const prices = Array.from(new Set([
+    analysis.lowest_price,
+    analysis.second_lowest_price,
+    "highest_price" in analysis ? analysis.highest_price : null,
+    price,
+  ].filter((v): v is number => v != null))).sort((a, b) => a - b)
+  const rank = prices.findIndex(v => v === price) + 1
+  if (rank === 3) return "第三低"
+  if (tags.isHighest) return "最高"
+  return rank > 0 ? `第${rank}低` : "—"
+}
+
+function quoteGapRatio(it: JourneyFactoryQuoteBrief, analysis: JourneyPriceAnalysis | JourneyFirstRoundFactoryAnalysis): string {
+  if (!analysis.comparable || it.factory_price == null || !analysis.lowest_price) return "—"
+  return ratioPct((it.factory_price - analysis.lowest_price) / analysis.lowest_price)
+}
+
 function FactoryQuoteDetails({
   label,
   items,
@@ -326,6 +353,51 @@ function FactoryQuoteDetails({
   )
 }
 
+function FirstRoundQuoteDetailsTemplate({
+  firstRound,
+  analysis,
+}: {
+  firstRound: JourneyFirstRound
+  analysis: JourneyFirstRoundFactoryAnalysis
+}) {
+  const items = firstRound.factory_quotes
+  return (
+    <div style={{ marginTop: 0 }}>
+      <SectionTitle label="第一轮报价明细" color={C_DARK_BLUE} />
+      <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 12 }}>
+        <thead>
+          <tr>
+            {["安排报价日期", "工厂报价日期", "工厂名称", "工厂价格（/件）", "币种", "价格比对情况", "价格相差比率"].map(h => (
+              <th key={h} style={{ background: C_LABEL_BG, border: "1px solid #bfbfbf", padding: "6px 6px", textAlign: "center", lineHeight: 1.35, wordBreak: "break-word" }}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {items.length === 0 ? (
+            <tr>
+              <td colSpan={7} style={{ border: "1px solid #d9d9d9", padding: "14px 8px", textAlign: "center", color: "#8c8c8c" }}>
+                暂无第一轮国内工厂报价明细
+              </td>
+            </tr>
+          ) : items.map(it => (
+            <tr key={it.id}>
+              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "center" }}>—</td>
+              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "center" }}>{dateText(it.quoted_at ?? it.created_at)}</td>
+              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "center", wordBreak: "break-word" }}>{dash(it.factory_name)}</td>
+              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "right" }}>{money(it.factory_price)}</td>
+              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "center" }}>{dash(it.currency)}</td>
+              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "center" }}>{quoteRankLabel(it, analysis)}</td>
+              <td style={{ border: "1px solid #d9d9d9", padding: "6px", textAlign: "center" }}>{quoteGapRatio(it, analysis)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function FirstRoundBaseParams({
   firstRound,
   inquiryId,
@@ -373,6 +445,9 @@ function FirstRoundBaseParams({
       port_misc_fee_cny: q?.port_misc_fee_cny ?? null,
       test_fee_cny: q?.test_fee_cny ?? null,
       misc_fee_cny: q?.misc_fee_cny ?? null,
+      included_other_fee_cny: q?.included_other_fee_cny ?? null,
+      pieces_per_card: q?.pieces_per_card ?? null,
+      destination_port_count: q?.destination_port_count ?? null,
       exchange_rate: q?.exchange_rate ?? null,
       net_profit_pct: q?.net_profit_pct ?? null,
       commission_pct: q?.commission_pct ?? null,
@@ -387,7 +462,7 @@ function FirstRoundBaseParams({
   return (
     <div>
       {ctx}
-      <SectionTitle label="第一轮报价计算区" color={C_ORANGE} />
+      <SectionTitle label="价格计算" color={C_ORANGE} />
       {!q && (
         <Alert
           type="info"
@@ -398,42 +473,59 @@ function FirstRoundBaseParams({
       )}
       <Form form={form} layout="vertical" size="small" disabled={!canEdit} onFinish={values => saveMutation.mutate(values)}>
         <div style={{ padding: 10, border: "1px solid #d9d9d9", borderTop: 0 }}>
-          <Row gutter={8}>
-            {[
+          {[
+            [
               ["订单数量", "order_quantity", 0],
+              ["每卡件数", "pieces_per_card", 0],
               ["算价格数量", "calc_quantity", 0],
-              ["分批走货情况", "batch_shipment_count", 4],
-              ["港杂费", "port_misc_fee_cny", 4],
-              ["测试费", "test_fee_cny", 4],
+            ],
+            [
               ["杂费", "misc_fee_cny", 4],
+              ["包含验货/验厂/运费等其他费用", "included_other_fee_cny", 4],
+              ["测试费", "test_fee_cny", 4],
+            ],
+            [
+              ["分批走货", "batch_shipment_count", 4],
+              ["目的港数量", "destination_port_count", 0],
+              ["港杂费", "port_misc_fee_cny", 4],
+            ],
+            [
+              ["佣金", "commission_pct", 2],
               ["报价汇率", "exchange_rate", 4],
               ["净利润值", "net_profit_pct", 2],
-              ["佣金", "commission_pct", 2],
-              ["选用工厂价格", "selected_factory_price_cny", 4],
-              ["给客人报的价格", "final_quote_usd", 4],
-              ["当下汇率", "current_exchange_rate", 4],
+            ],
+            [
+              ["选取工厂价格", "selected_factory_price_cny", 4],
+              ["客人价格", "final_quote_usd", 4],
               ["客人目标价格", "customer_target_price_usd", 4],
-            ].map(([label, name, precision]) => (
-              <Col span={8} key={String(name)}>
-                <Form.Item label={label} name={name as string} style={{ marginBottom: 8 }}>
-                  <InputNumber style={{ width: "100%" }} min={0} precision={precision as number} />
-                </Form.Item>
-              </Col>
-            ))}
+            ],
+          ].map((row, idx) => (
+            <Row gutter={8} key={idx}>
+              {row.map(([label, name, precision]) => (
+                <Col span={8} key={String(name)}>
+                  <Form.Item label={label} name={name as string} style={{ marginBottom: 8 }}>
+                    <InputNumber style={{ width: "100%" }} min={0} precision={precision as number} />
+                  </Form.Item>
+                </Col>
+              ))}
+            </Row>
+          ))}
+          <Row gutter={8}>
             <Col span={8}>
-              <Form.Item label="选用工厂名字" name="selected_factory" style={{ marginBottom: 8 }}>
+              <Form.Item label="选取工厂" name="selected_factory" style={{ marginBottom: 8 }}>
                 <Select allowClear showSearch options={factoryOptions} placeholder="需要人工确认" />
               </Form.Item>
             </Col>
+            <Col span={8}>
+              <Form.Item label="当下汇率" name="current_exchange_rate" style={{ marginBottom: 8 }}>
+                <InputNumber style={{ width: "100%" }} min={0} precision={4} />
+              </Form.Item>
+            </Col>
           </Row>
-          <ExcelTwoRowTable fields={[
-            { label: "毛利润额（人民币）", value: money(q?.gross_profit_cny) },
-            { label: "贸易额（美金）", value: money(q?.trade_amount_usd) },
-            { label: "给客人报的价格和目标价比例", value: ratioPct(q?.quote_vs_target_ratio) },
-            { label: "按照达到目标价格的利润值", value: money(q?.target_profit_value) },
-            { label: "达到目标价格要降的钱数", value: money(q?.target_price_gap_usd ?? q?.target_gap_cny) },
-            { label: "倒推给工厂的目标价格", value: money(q?.reverse_target_price_cny) },
-          ]} />
+          <ExcelTwoRowTable groups={[[
+            { label: "毛利润额（人民币）", value: money(q?.gross_profit_cny), highlight: true },
+            { label: "贸易额（美金）", value: money(q?.trade_amount_usd), highlight: true },
+          ]]} />
           <Space style={{ marginTop: 12 }}>
             <Button icon={<CalculatorOutlined />} onClick={onRecalculate} loading={recalculating}>
               重新计算
@@ -541,6 +633,7 @@ function FactoryDecisionAid({ analysis }: { analysis: JourneyFirstRoundAnalysisB
 }
 
 function HistoricalPriceReference({ historical }: { historical: JourneyHistoricalPriceReference }) {
+  const [showSamples, setShowSamples] = useState(false)
   const columns = [
     { title: "询单号", dataIndex: "inquiry_no", width: 120 },
     { title: "客户", dataIndex: "customer_short_name", width: 120, render: (v: string | null, r: { customer_code: string | null }) => v || r.customer_code || "—" },
@@ -559,19 +652,18 @@ function HistoricalPriceReference({ historical }: { historical: JourneyHistorica
         <Alert type={historical.status === "no_data" ? "info" : "warning"} showIcon style={{ borderRadius: 0, borderBottom: 0 }} message={historical.message} />
       )}
       <ExcelTwoRowTable groups={[[
-        { label: "匹配规则", value: dash(historical.match_rule) },
-        { label: "历史样本数量", value: historical.sample_count },
+        { label: "类似款式数量", value: historical.samples.length > 0 ? <Button type="link" size="small" onClick={() => setShowSamples(v => !v)}>{historical.sample_count}</Button> : historical.sample_count, highlight: historical.sample_count > 0 },
         { label: "历史最低价", value: priceWithUnit(historical.historical_lowest_price, historical.currency, historical.price_unit) },
         { label: "历史最高价", value: priceWithUnit(historical.historical_highest_price, historical.currency, historical.price_unit) },
         { label: "历史平均价", value: priceWithUnit(historical.historical_average_price, historical.currency, historical.price_unit) },
-        { label: "历史中位数价", value: priceWithUnit(historical.historical_median_price, historical.currency, historical.price_unit) },
       ], [
+        { label: "历史中位数价", value: priceWithUnit(historical.historical_median_price, historical.currency, historical.price_unit) },
         { label: "常规价格区间 P25", value: priceWithUnit(historical.normal_price_range_low, historical.currency, historical.price_unit), highlight: true },
         { label: "常规价格区间 P75", value: priceWithUnit(historical.normal_price_range_high, historical.currency, historical.price_unit), highlight: true },
         { label: "当前最低价低于历史区间", value: historical.current_lowest_below_range == null ? "—" : historical.current_lowest_below_range ? "是" : "否" },
         { label: "当前选用工厂价高于历史区间", value: historical.selected_price_above_range == null ? "—" : historical.selected_price_above_range ? "是" : "否" },
       ]]} />
-      {historical.samples.length > 0 && (
+      {historical.samples.length > 0 && showSamples && (
         <div style={{ border: "1px solid #d9d9d9", borderTop: 0, padding: 10, background: "#fff" }}>
           <Text type="secondary" style={{ display: "block", marginBottom: 8 }}>历史样本明细</Text>
           <Table
@@ -587,22 +679,37 @@ function HistoricalPriceReference({ historical }: { historical: JourneyHistorica
   )
 }
 
-function CustomerTargetAnalysis({ analysis }: { analysis: JourneyFirstRoundAnalysisBundle }) {
+function CustomerTargetAnalysis({
+  analysis,
+  quoteItem,
+}: {
+  analysis: JourneyFirstRoundAnalysisBundle
+  quoteItem: JourneyFirstRound["quote_item"]
+}) {
   const target = analysis.customer_target_price_analysis
+  const feasible = target.target_has_profit == null
+    ? "—"
+    : target.target_has_profit
+    ? (target.target_gross_profit_rate != null && target.target_gross_profit_rate >= 0.15 ? "有利润空间" : "利润较薄")
+    : "可能亏损"
   return (
     <div style={{ marginTop: 10 }}>
-      <SectionTitle label="客人目标价可行性分析区" color={C_ORANGE} />
+      <SectionTitle label="目标价分析" color={C_ORANGE} />
       <ExcelTwoRowTable groups={[[
-        { label: "客人目标价", value: money(target.customer_target_price_usd), highlight: true },
-        { label: "当前给客人报的价格", value: money(target.final_quote_usd) },
-        { label: "目标价 vs 当前报价差额", value: signedMoney(target.target_vs_current_diff), highlight: true },
-        { label: "目标价 vs 当前报价差百分比", value: ratioPct(target.target_vs_current_diff_pct) },
-        { label: "达到目标价所需降价百分比", value: ratioPct(target.required_discount_pct), highlight: true },
+        { label: "目标价", value: money(target.customer_target_price_usd), highlight: true },
+        { label: "倒推给工厂目标价格时利润值", value: money(quoteItem?.reverse_target_profit_value) },
+        { label: "倒推给工厂的目标价格", value: money(quoteItem?.reverse_target_price_cny), highlight: true },
+      ], [
+        { label: "达到目标价格毛利润额", value: money(target.target_gross_profit_cny ?? quoteItem?.target_gross_profit_cny), highlight: true },
+        { label: "达到目标价格贸易额", value: money(target.target_sales_amount_usd ?? quoteItem?.target_trade_amount_usd) },
+        { label: "目标价格是否合理", value: feasible, highlight: true },
+      ], [
+        { label: "达到目标价格要降的钱数", value: signedMoney(target.target_vs_current_diff ?? quoteItem?.target_price_gap_usd ?? quoteItem?.target_gap_cny), highlight: true },
+        { label: "给客人报的价格和目标价比例", value: ratioPct(quoteItem?.quote_vs_target_ratio ?? target.target_vs_current_diff_pct) },
+        { label: "按照达到目标价格的利润值", value: money(quoteItem?.target_profit_value) },
       ], [
         { label: "按目标价预计销售额", value: money(target.target_sales_amount_usd) },
-        { label: "按目标价预计毛利润", value: money(target.target_gross_profit_cny) },
         { label: "按目标价预计毛利率", value: ratioPct(target.target_gross_profit_rate), highlight: true },
-        { label: "目标价下是否仍有利润", value: target.target_has_profit == null ? "—" : target.target_has_profit ? "是" : "否", highlight: true },
         { label: "缺少关键字段", value: target.missing_fields.length ? target.missing_fields.join("、") : "—" },
       ]]} />
       <AnalysisAlerts messages={target.messages} />
@@ -866,18 +973,12 @@ function FirstRoundBlock({
         第一轮报价
       </div>
       <div style={{ padding: 10 }}>
-        <FactoryQuoteDetails
-          label="第一轮工厂报价明细"
-          items={firstRound.factory_quotes}
-          analysis={analysis.factory_price_analysis}
-          emptyText="暂无第一轮国内工厂报价明细"
-          showMetaColumns={false}
-        />
+        <FirstRoundQuoteDetailsTemplate firstRound={firstRound} analysis={analysis.factory_price_analysis} />
         <FirstRoundFactoryQuoteEditor inquiryId={inquiryId} firstRound={firstRound} canEdit={canEdit} />
         <FirstRoundFactoryAnalysis analysis={analysis.factory_price_analysis} />
         <Row gutter={12} align="top">
           <Col span={12}>
-            <CustomerTargetAnalysis analysis={analysis} />
+            <CustomerTargetAnalysis analysis={analysis} quoteItem={firstRound.quote_item} />
             <FirstRoundBaseParams
               firstRound={firstRound}
               inquiryId={inquiryId}

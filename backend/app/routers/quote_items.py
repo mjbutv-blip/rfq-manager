@@ -25,6 +25,9 @@ EDITABLE_FIRST_ROUND_FIELDS = (
     "port_misc_fee_cny",
     "test_fee_cny",
     "misc_fee_cny",
+    "included_other_fee_cny",
+    "pieces_per_card",
+    "destination_port_count",
     "exchange_rate",
     "net_profit_pct",
     "commission_pct",
@@ -43,6 +46,9 @@ class QuoteItemUpdate(BaseModel):
     port_misc_fee_cny: Decimal | None = Field(default=None, ge=0)
     test_fee_cny: Decimal | None = Field(default=None, ge=0)
     misc_fee_cny: Decimal | None = Field(default=None, ge=0)
+    included_other_fee_cny: Decimal | None = Field(default=None, ge=0)
+    pieces_per_card: int | None = Field(default=None, ge=0)
+    destination_port_count: int | None = Field(default=None, ge=0)
     exchange_rate: Decimal | None = Field(default=None, ge=0)
     net_profit_pct: Decimal | None = None
     commission_pct: Decimal | None = None
