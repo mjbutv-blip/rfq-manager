@@ -130,12 +130,11 @@ type ExcelField = { label: string; value: ReactNode; highlight?: boolean }
 function ExcelTwoRowTable({ fields, groups }: { fields?: ExcelField[]; groups?: ExcelField[][] }) {
   const rows = groups ?? (fields ? [fields] : [])
   return (
-    <div style={{ overflowX: "auto", width: "100%" }}>
+    <div style={{ width: "100%" }}>
       {rows.map((row, rowIndex) => (
         <table
           key={rowIndex}
           style={{
-            minWidth: Math.max(900, row.length * 150),
             width: "100%",
             borderCollapse: "collapse",
             tableLayout: "fixed",
@@ -146,7 +145,7 @@ function ExcelTwoRowTable({ fields, groups }: { fields?: ExcelField[]; groups?: 
             <tr>
               {row.map(f => (
                 <th key={f.label} style={{
-                  background: C_LABEL_BG, border: "1px solid #bfbfbf", padding: "6px 8px",
+                  background: C_LABEL_BG, border: "1px solid #bfbfbf", padding: "5px 6px",
                   textAlign: "center", fontSize: 12, fontWeight: 600, whiteSpace: "normal",
                   lineHeight: 1.35, wordBreak: "break-word",
                 }}>
@@ -158,7 +157,7 @@ function ExcelTwoRowTable({ fields, groups }: { fields?: ExcelField[]; groups?: 
               {row.map(f => (
                 <td key={f.label} style={{
                   background: f.highlight ? "#fff7e6" : "#fff", border: "1px solid #d9d9d9",
-                  padding: "8px 8px", textAlign: "center", fontSize: 13,
+                  padding: "6px 6px", textAlign: "center", fontSize: 12,
                   color: f.highlight ? "#d4380d" : undefined, fontWeight: f.highlight ? 700 : 400,
                   lineHeight: 1.35, wordBreak: "break-word",
                 }}>
@@ -183,7 +182,8 @@ function FieldGrid({ fields }: { fields: { label: string; value: ReactNode; high
           {fields.map((f, i) => (
             <td key={`l${i}`} style={{
               background: C_LABEL_BG, fontSize: 12, fontWeight: 500, textAlign: "center",
-              padding: "5px 6px", border: "1px solid #d9d9d9", whiteSpace: "nowrap",
+              padding: "5px 6px", border: "1px solid #d9d9d9", whiteSpace: "normal",
+              lineHeight: 1.35, wordBreak: "break-word",
             }}>
               {f.label}
             </td>
@@ -195,6 +195,7 @@ function FieldGrid({ fields }: { fields: { label: string; value: ReactNode; high
               background: f.highlight ? "#fff7e6" : "#fff", fontSize: 13, textAlign: "center",
               padding: "8px 6px", border: "1px solid #d9d9d9",
               fontWeight: f.highlight ? 600 : 400, color: f.highlight ? "#d4380d" : undefined,
+              lineHeight: 1.35, wordBreak: "break-word",
             }}>
               {f.value}
             </td>
@@ -261,19 +262,24 @@ function FactoryQuoteDetails({
   items,
   analysis,
   emptyText,
+  showMetaColumns = true,
 }: {
   label: string
   items: JourneyFactoryQuoteBrief[]
   analysis: JourneyPriceAnalysis | JourneyFirstRoundFactoryAnalysis
   emptyText: string
+  showMetaColumns?: boolean
 }) {
+  const headers = showMetaColumns
+    ? ["工厂", "工厂报价", "币种", "单位", "标识", "备注", "来源", "录入时间"]
+    : ["工厂", "工厂报价", "币种", "单位", "标识", "备注"]
   return (
     <div style={{ marginTop: 10 }}>
       <SectionTitle label={label} color={C_LIGHT_BLUE} />
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <thead>
           <tr>
-            {["工厂", "工厂报价", "币种", "单位", "标识", "备注", "来源", "录入时间"].map(h => (
+            {headers.map(h => (
               <th key={h} style={{ background: "#f0f5ff", border: "1px solid #bfbfbf", padding: "7px 8px", textAlign: "center", whiteSpace: "nowrap" }}>{h}</th>
             ))}
           </tr>
@@ -281,7 +287,7 @@ function FactoryQuoteDetails({
         <tbody>
           {items.length === 0 ? (
             <tr>
-              <td colSpan={8} style={{ border: "1px solid #d9d9d9", padding: "16px 8px", textAlign: "center", color: "#8c8c8c" }}>
+              <td colSpan={headers.length} style={{ border: "1px solid #d9d9d9", padding: "16px 8px", textAlign: "center", color: "#8c8c8c" }}>
                 {emptyText}
               </td>
             </tr>
@@ -303,10 +309,14 @@ function FactoryQuoteDetails({
                   </Space>
                 </td>
                 <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>{dash(it.remark)}</td>
-                <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>{dash(it.source)}</td>
-                <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>
-                  {it.created_at ? new Date(it.created_at).toLocaleString("zh-CN") : "—"}
-                </td>
+                {showMetaColumns && (
+                  <>
+                    <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>{dash(it.source)}</td>
+                    <td style={{ border: "1px solid #d9d9d9", padding: "7px 8px", textAlign: "center" }}>
+                      {it.created_at ? new Date(it.created_at).toLocaleString("zh-CN") : "—"}
+                    </td>
+                  </>
+                )}
               </tr>
             )
           })}
@@ -386,9 +396,9 @@ function FirstRoundBaseParams({
           message="当前询单尚未创建第一轮国内报价参数记录，填写后可直接保存创建。"
         />
       )}
-      <Form form={form} layout="vertical" disabled={!canEdit} onFinish={values => saveMutation.mutate(values)}>
+      <Form form={form} layout="vertical" size="small" disabled={!canEdit} onFinish={values => saveMutation.mutate(values)}>
         <div style={{ padding: 10, border: "1px solid #d9d9d9", borderTop: 0 }}>
-          <Row gutter={12}>
+          <Row gutter={8}>
             {[
               ["订单数量", "order_quantity", 0],
               ["算价格数量", "calc_quantity", 0],
@@ -404,14 +414,14 @@ function FirstRoundBaseParams({
               ["当下汇率", "current_exchange_rate", 4],
               ["客人目标价格", "customer_target_price_usd", 4],
             ].map(([label, name, precision]) => (
-              <Col span={6} key={String(name)}>
-                <Form.Item label={label} name={name as string}>
+              <Col span={8} key={String(name)}>
+                <Form.Item label={label} name={name as string} style={{ marginBottom: 8 }}>
                   <InputNumber style={{ width: "100%" }} min={0} precision={precision as number} />
                 </Form.Item>
               </Col>
             ))}
-            <Col span={6}>
-              <Form.Item label="选用工厂名字" name="selected_factory">
+            <Col span={8}>
+              <Form.Item label="选用工厂名字" name="selected_factory" style={{ marginBottom: 8 }}>
                 <Select allowClear showSearch options={factoryOptions} placeholder="需要人工确认" />
               </Form.Item>
             </Col>
@@ -455,14 +465,16 @@ function FirstRoundFactoryAnalysis({ analysis }: { analysis: JourneyFirstRoundFa
     { label: "最低报价", value: priceWithUnit(analysis.lowest_price, analysis.currency, analysis.price_unit), highlight: true },
     { label: "第二低报价工厂", value: joined(analysis.second_lowest_factories) },
     { label: "第二低报价", value: priceWithUnit(analysis.second_lowest_price, analysis.currency, analysis.price_unit) },
+  ]
+  const distributionFields: ExcelField[] = [
     { label: "最高报价工厂", value: joined(analysis.highest_factories) },
     { label: "最高报价", value: priceWithUnit(analysis.highest_price, analysis.currency, analysis.price_unit) },
     { label: "平均报价", value: priceWithUnit(analysis.average_price, analysis.currency, analysis.price_unit) },
     { label: "中位数报价", value: priceWithUnit(analysis.median_price, analysis.currency, analysis.price_unit) },
-  ]
-  const selectedFields: ExcelField[] = [
     { label: "最高价 - 最低价", value: priceWithUnit(analysis.spread_amount, analysis.currency, analysis.price_unit) },
     { label: "最高价相比最低价高百分比", value: ratioPct(analysis.spread_pct), highlight: true },
+  ]
+  const selectedFields: ExcelField[] = [
     { label: "第二低价比最低价高百分比", value: ratioPct(analysis.second_lowest_vs_lowest_pct), highlight: true },
     { label: "选用工厂", value: dash(analysis.selected_factory), highlight: true },
     { label: "选用工厂价格", value: priceWithUnit(analysis.selected_factory_price, analysis.currency, analysis.price_unit), highlight: true },
@@ -482,7 +494,7 @@ function FirstRoundFactoryAnalysis({ analysis }: { analysis: JourneyFirstRoundFa
           {reason}
         </div>
       )}
-      <ExcelTwoRowTable groups={[marketFields, selectedFields]} />
+      <ExcelTwoRowTable groups={[marketFields, distributionFields, selectedFields]} />
     </div>
   )
 }
@@ -568,7 +580,6 @@ function HistoricalPriceReference({ historical }: { historical: JourneyHistorica
             dataSource={historical.samples}
             size="small"
             pagination={{ pageSize: 5, size: "small" }}
-            scroll={{ x: 1030 }}
           />
         </div>
       )}
@@ -608,16 +619,18 @@ function AiAnalysisHints({ analysis }: { analysis: JourneyFirstRoundAnalysisBund
           当前为规则生成的分析提示，不调用 AI API，不写入数据库。
         </Text>
         <Space direction="vertical" style={{ width: "100%" }} size={8}>
-          {analysis.ai_analysis_messages.map((section, idx) => (
-            <div key={section.title} style={{ border: "1px solid #f0f0f0", padding: "8px 10px", background: "#fafafa" }}>
-              <Text strong>{idx + 1}. {section.title}</Text>
-              <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
-                {(section.items ?? []).map((item, itemIdx) => (
-                  <li key={itemIdx} style={{ lineHeight: 1.7 }}>{item}</li>
-                ))}
-              </ul>
-            </div>
-          ))}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 8 }}>
+            {analysis.ai_analysis_messages.map((section, idx) => (
+              <div key={section.title} style={{ border: "1px solid #f0f0f0", padding: "7px 9px", background: "#fafafa" }}>
+                <Text strong style={{ fontSize: 12 }}>{idx + 1}. {section.title}</Text>
+                <ul style={{ margin: "5px 0 0 16px", padding: 0 }}>
+                  {(section.items ?? []).map((item, itemIdx) => (
+                    <li key={itemIdx} style={{ lineHeight: 1.5, fontSize: 12 }}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
         </Space>
       </div>
     </div>
@@ -853,25 +866,32 @@ function FirstRoundBlock({
         第一轮报价
       </div>
       <div style={{ padding: 10 }}>
-        <FirstRoundBaseParams
-          firstRound={firstRound}
-          inquiryId={inquiryId}
-          canEdit={canEdit}
-          onRecalculate={onRecalculate}
-          recalculating={recalculating}
-          onSaved={onSaved}
-        />
-        <FirstRoundFactoryAnalysis analysis={analysis.factory_price_analysis} />
         <FactoryQuoteDetails
           label="第一轮工厂报价明细"
           items={firstRound.factory_quotes}
           analysis={analysis.factory_price_analysis}
           emptyText="暂无第一轮国内工厂报价明细"
+          showMetaColumns={false}
         />
         <FirstRoundFactoryQuoteEditor inquiryId={inquiryId} firstRound={firstRound} canEdit={canEdit} />
-        <FactoryDecisionAid analysis={analysis} />
-        <HistoricalPriceReference historical={analysis.historical_price_reference} />
-        <CustomerTargetAnalysis analysis={analysis} />
+        <FirstRoundFactoryAnalysis analysis={analysis.factory_price_analysis} />
+        <Row gutter={12} align="top">
+          <Col span={12}>
+            <CustomerTargetAnalysis analysis={analysis} />
+            <FirstRoundBaseParams
+              firstRound={firstRound}
+              inquiryId={inquiryId}
+              canEdit={canEdit}
+              onRecalculate={onRecalculate}
+              recalculating={recalculating}
+              onSaved={onSaved}
+            />
+          </Col>
+          <Col span={12}>
+            <FactoryDecisionAid analysis={analysis} />
+            <HistoricalPriceReference historical={analysis.historical_price_reference} />
+          </Col>
+        </Row>
         <AiAnalysisHints analysis={analysis} />
       </div>
     </div>
@@ -960,8 +980,8 @@ export default function InquiryJourneyPage() {
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(`/inquiry/${id}`)}>返回询单详情</Button>
       </Space>
 
-      <div style={{ overflowX: "auto" }}>
-        <div style={{ minWidth: 1100 }}>
+      <div>
+        <div>
           {/* 标题条 */}
           <div style={{ background: C_DARK_BLUE, color: "#fff", padding: "10px 16px", fontSize: 16, fontWeight: 700 }}>
             询单报价详情表｜{dash(inquiry.customer_code)}-{inquiry.inquiry_no}
