@@ -9,13 +9,10 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Alert, AutoComplete, Button, Card, Col, Form, Input, InputNumber, Popconfirm, Row, Select, Space, Spin, Table, Tag, Typography, message } from "antd"
+import { Alert, Button, Col, Form, InputNumber, Row, Select, Space, Spin, Table, Tag, Typography, message } from "antd"
 import { ArrowLeftOutlined, CalculatorOutlined, PlusOutlined, SaveOutlined } from "@ant-design/icons"
 
 import { analyzeFirstQuoteRound, createFirstRoundQuoteItem, fetchInquiryJourney, updateQuoteItem, type QuoteItemUpdateBody } from "@/api/inquiry_journey"
-import { createFactoryQuote, deleteFactoryQuote, updateFactoryQuote } from "@/api/factory_quotes"
-import { fetchFactories } from "@/api/factories"
-import { CURRENCY_OPTIONS, PRICE_UNIT_OPTIONS } from "@/types/factory_quote"
 import type {
   JourneyFactoryQuoteBrief,
   JourneyFirstRound,
@@ -744,212 +741,6 @@ function AiAnalysisHints({ analysis }: { analysis: JourneyFirstRoundAnalysisBund
   )
 }
 
-interface FirstRoundQuoteForm {
-  factory_id: string | null
-  factory_name: string
-  factory_price: number | null
-  currency: string
-  price_unit: string
-  remark: string
-}
-
-function formFromBrief(r: JourneyFactoryQuoteBrief): FirstRoundQuoteForm {
-  return {
-    factory_id: r.factory_id,
-    factory_name: r.factory_name ?? "",
-    factory_price: r.factory_price,
-    currency: r.currency ?? "CNY",
-    price_unit: r.price_unit ?? "件",
-    remark: r.remark ?? "",
-  }
-}
-
-function emptyFirstRoundQuoteForm(): FirstRoundQuoteForm {
-  return { factory_id: null, factory_name: "", factory_price: null, currency: "CNY", price_unit: "件", remark: "" }
-}
-
-function FirstRoundFactoryQuoteEditor({
-  inquiryId,
-  firstRound,
-  canEdit,
-}: {
-  inquiryId: string
-  firstRound: JourneyFirstRound
-  canEdit: boolean
-}) {
-  const [msgApi, ctx] = message.useMessage()
-  const queryClient = useQueryClient()
-  const [drafts, setDrafts] = useState<{ localId: string; form: FirstRoundQuoteForm }[]>([])
-  const [edits, setEdits] = useState<Record<string, FirstRoundQuoteForm>>({})
-
-  const { data: factoryList } = useQuery({
-    queryKey: ["factories-for-quote-select"],
-    queryFn: () => fetchFactories({ page_size: 200 }),
-  })
-  const factoryOptions = (factoryList?.items ?? []).map(f => ({
-    value: f.factory_short_name || f.factory_name || "",
-    id: f.id,
-  }))
-
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["inquiry-journey", inquiryId] })
-    queryClient.invalidateQueries({ queryKey: ["quote-items"] })
-    queryClient.invalidateQueries({ queryKey: ["factory-quotes", inquiryId] })
-    queryClient.invalidateQueries({ queryKey: ["factory-detail"] })
-    queryClient.invalidateQueries({ queryKey: ["operation-logs"] })
-  }
-
-  const validate = (form: FirstRoundQuoteForm): string | null => {
-    if (!form.factory_id && !form.factory_name.trim()) return "请选择工厂或填写工厂名称"
-    if (form.factory_price == null || form.factory_price < 0) return "请填写工厂报价（不能为负数）"
-    return null
-  }
-
-  const body = (form: FirstRoundQuoteForm) => ({
-    factory_id: form.factory_id,
-    factory_name: form.factory_name.trim() || undefined,
-    factory_price: form.factory_price ?? 0,
-    currency: form.currency,
-    price_unit: form.price_unit,
-    quote_round: 1,
-    quote_type: "domestic",
-    remark: form.remark.trim() || undefined,
-  })
-
-  const createMutation = useMutation({
-    mutationFn: ({ form }: { localId: string; form: FirstRoundQuoteForm }) =>
-      createFactoryQuote(inquiryId, body(form)),
-    onSuccess: (_res, vars) => {
-      msgApi.success("第一轮工厂报价已保存")
-      setDrafts(prev => prev.filter(d => d.localId !== vars.localId))
-      invalidate()
-    },
-    onError: (e: Error) => msgApi.error(`保存失败：${e.message}`),
-  })
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, form }: { id: string; form: FirstRoundQuoteForm }) =>
-      updateFactoryQuote(id, body(form)),
-    onSuccess: (_res, vars) => {
-      msgApi.success("第一轮工厂报价已更新")
-      setEdits(prev => { const next = { ...prev }; delete next[vars.id]; return next })
-      invalidate()
-    },
-    onError: (e: Error) => msgApi.error(`保存失败：${e.message}`),
-  })
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => deleteFactoryQuote(id),
-    onSuccess: () => {
-      msgApi.success("已删除第一轮工厂报价")
-      invalidate()
-    },
-    onError: (e: Error) => msgApi.error(`删除失败：${e.message}`),
-  })
-
-  const renderForm = (
-    key: string,
-    form: FirstRoundQuoteForm,
-    onChange: (f: FirstRoundQuoteForm) => void,
-    onSave: () => void,
-    onDelete: () => void,
-    saving: boolean,
-    deleting: boolean,
-    isDraft: boolean,
-  ) => (
-    <Card key={key} size="small" style={{ marginBottom: 8, background: isDraft ? "#fafafa" : undefined }}>
-      <Row gutter={12} align="middle">
-        <Col span={7}>
-          <Text type="secondary" style={{ fontSize: 12 }}>工厂</Text>
-          <AutoComplete
-            disabled={!canEdit}
-            value={form.factory_name}
-            options={factoryOptions}
-            filterOption={(input, option) => (option?.value ?? "").toLowerCase().includes(input.toLowerCase())}
-            onSelect={(value, option) => onChange({ ...form, factory_name: value, factory_id: (option as { id: string }).id })}
-            onChange={value => onChange({ ...form, factory_name: value, factory_id: null })}
-            style={{ width: "100%" }}
-            placeholder="选择已有工厂或输入名称"
-          />
-        </Col>
-        <Col span={4}>
-          <Text type="secondary" style={{ fontSize: 12 }}>报价</Text>
-          <InputNumber disabled={!canEdit} min={0} precision={4} value={form.factory_price} onChange={v => onChange({ ...form, factory_price: v })} style={{ width: "100%" }} />
-        </Col>
-        <Col span={3}>
-          <Text type="secondary" style={{ fontSize: 12 }}>币种</Text>
-          <Select disabled={!canEdit} value={form.currency} options={CURRENCY_OPTIONS.map(v => ({ label: v, value: v }))} onChange={v => onChange({ ...form, currency: v })} style={{ width: "100%" }} />
-        </Col>
-        <Col span={3}>
-          <Text type="secondary" style={{ fontSize: 12 }}>单位</Text>
-          <Select disabled={!canEdit} value={form.price_unit} options={PRICE_UNIT_OPTIONS.map(v => ({ label: v, value: v }))} onChange={v => onChange({ ...form, price_unit: v })} style={{ width: "100%" }} />
-        </Col>
-        <Col span={5}>
-          <Text type="secondary" style={{ fontSize: 12 }}>备注</Text>
-          <Input disabled={!canEdit} value={form.remark} onChange={e => onChange({ ...form, remark: e.target.value })} />
-        </Col>
-        <Col span={2}>
-          {canEdit && (
-            <Space size={4}>
-              <Popconfirm title={isDraft ? "取消新增？" : "删除该第一轮报价？"} onConfirm={onDelete}>
-                <Button size="small" danger loading={deleting}>删</Button>
-              </Popconfirm>
-              <Button size="small" type="primary" loading={saving} onClick={onSave}>存</Button>
-            </Space>
-          )}
-        </Col>
-      </Row>
-    </Card>
-  )
-
-  return (
-    <div style={{ marginTop: 10 }}>
-      {ctx}
-      <SectionTitle label="第一轮国内工厂报价录入" color={C_LIGHT_BLUE} />
-      <div style={{ border: "1px solid #d9d9d9", borderTop: 0, padding: 10, background: "#fff" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-          <Text type="secondary">只录入 quote_round = 1、quote_type = domestic 的工厂报价。</Text>
-          {canEdit && <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setDrafts(prev => [...prev, { localId: `draft-${Date.now()}`, form: emptyFirstRoundQuoteForm() }])}>新增第一轮报价</Button>}
-        </div>
-        {firstRound.factory_quotes.map(r => {
-          const form = edits[r.id] ?? formFromBrief(r)
-          return renderForm(
-            r.id,
-            form,
-            f => setEdits(prev => ({ ...prev, [r.id]: f })),
-            () => {
-              const err = validate(form)
-              if (err) { msgApi.warning(err); return }
-              updateMutation.mutate({ id: r.id, form })
-            },
-            () => deleteMutation.mutate(r.id),
-            updateMutation.isPending && updateMutation.variables?.id === r.id,
-            deleteMutation.isPending && deleteMutation.variables === r.id,
-            false,
-          )
-        })}
-        {drafts.map(d => renderForm(
-          d.localId,
-          d.form,
-          f => setDrafts(prev => prev.map(x => x.localId === d.localId ? { ...x, form: f } : x)),
-          () => {
-            const err = validate(d.form)
-            if (err) { msgApi.warning(err); return }
-            createMutation.mutate({ localId: d.localId, form: d.form })
-          },
-          () => setDrafts(prev => prev.filter(x => x.localId !== d.localId)),
-          createMutation.isPending && createMutation.variables?.localId === d.localId,
-          false,
-          true,
-        ))}
-        {firstRound.factory_quotes.length === 0 && drafts.length === 0 && (
-          <Text type="secondary">暂无第一轮国内工厂报价。</Text>
-        )}
-      </div>
-    </div>
-  )
-}
-
 function FirstRoundBlock({
   firstRound,
   inquiryId,
@@ -974,7 +765,6 @@ function FirstRoundBlock({
       </div>
       <div style={{ padding: 10 }}>
         <FirstRoundQuoteDetailsTemplate firstRound={firstRound} analysis={analysis.factory_price_analysis} />
-        <FirstRoundFactoryQuoteEditor inquiryId={inquiryId} firstRound={firstRound} canEdit={canEdit} />
         <FirstRoundFactoryAnalysis analysis={analysis.factory_price_analysis} />
         <Row gutter={12} align="top">
           <Col span={12}>
