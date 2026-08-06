@@ -249,6 +249,14 @@ function quoteGapRatio(it: JourneyFactoryQuoteBrief, analysis: JourneyPriceAnaly
   return ratioPct((it.factory_price - analysis.lowest_price) / analysis.lowest_price)
 }
 
+function quoteRankTag(label: string): ReactNode {
+  if (label === "最低") return <Tag color="green">最低</Tag>
+  if (label === "第二低") return <Tag color="gold">第二低</Tag>
+  if (label === "最高") return <Tag color="red">最高</Tag>
+  if (label === "—") return <Text type="secondary">—</Text>
+  return <Tag color="orange">{label}</Tag>
+}
+
 function FactoryQuoteDetails({
   label,
   items,
@@ -407,18 +415,20 @@ function FirstRoundExcelSheet({
   const cell = (content: ReactNode, opts: { colSpan?: number; header?: boolean; section?: boolean; strong?: boolean; height?: number; align?: "center" | "right" | "left"; muted?: boolean; color?: string } = {}) => (
     <td colSpan={opts.colSpan} style={{
       border,
-      background: opts.section ? (opts.color ?? C_DARK_BLUE) : opts.header ? C_LABEL_BG : "#fff",
+      background: opts.section ? (opts.color ?? C_DARK_BLUE) : opts.header ? "#f0f5ff" : "#fff",
       color: opts.section ? "#fff" : opts.muted ? "#8c8c8c" : undefined,
       fontWeight: opts.header || opts.strong || opts.section ? 700 : 400,
       textAlign: opts.align ?? "center",
       verticalAlign: "middle",
       height: opts.height ?? 30,
-      padding: "5px 6px",
-      fontSize: 12,
+      padding: opts.section ? "7px 10px" : "7px 8px",
+      fontSize: opts.section ? 14 : 13,
       lineHeight: 1.35,
       wordBreak: "break-word",
     }}>{content}</td>
   )
+  const quoteCell = (content: ReactNode, opts: { colSpan?: number; header?: boolean; align?: "center" | "right" | "left"; muted?: boolean } = {}) =>
+    cell(content, { ...opts, height: opts.header ? 44 : 36 })
   const input = (name: keyof QuoteItemUpdateBody, precision = 4) => (
     <Form.Item noStyle name={name}>
       <InputNumber size="small" controls={false} min={0} precision={precision} style={{ width: "100%" }} />
@@ -440,19 +450,23 @@ function FirstRoundExcelSheet({
           <tbody>
             <tr>{cell("第一轮报价", { colSpan: 10, section: true, height: 36 })}</tr>
             <tr>
-              {["安排报价日期", "工厂报价日期", "工厂名称", "工厂价格（/件）", "币种", "价格比对情况", "价格相差比率"].map(h => cell(h, { header: true, height: 28 }))}
-              {cell("", { colSpan: 3 })}
+              {quoteCell("安排报价日期", { header: true })}
+              {quoteCell("工厂报价日期", { header: true })}
+              {quoteCell("工厂名称", { header: true, colSpan: 2 })}
+              {quoteCell("工厂价格（/件）", { header: true })}
+              {quoteCell("币种", { header: true })}
+              {quoteCell("价格比对情况", { header: true, colSpan: 2 })}
+              {quoteCell("价格相差比率", { header: true, colSpan: 2 })}
             </tr>
             {displayQuoteRows.map((it, idx) => (
               <tr key={it?.id ?? `empty-${idx}`}>
-                {cell("—", { muted: !it })}
-                {cell(it ? dateText(it.quoted_at ?? it.created_at) : "—", { muted: !it })}
-                {cell(dash(it?.factory_name), { muted: !it })}
-                {cell(money(it?.factory_price), { align: "right", muted: !it })}
-                {cell(dash(it?.currency), { muted: !it })}
-                {cell(it ? quoteRankLabel(it, fa) : "—", { muted: !it })}
-                {cell(it ? quoteGapRatio(it, fa) : "—", { muted: !it })}
-                {cell("", { colSpan: 3 })}
+                {quoteCell("—", { muted: !it })}
+                {quoteCell(it ? dateText(it.quoted_at ?? it.created_at) : "—", { muted: !it })}
+                {quoteCell(dash(it?.factory_name), { colSpan: 2, muted: !it })}
+                {quoteCell(money(it?.factory_price), { align: "right", muted: !it })}
+                {quoteCell(dash(it?.currency), { muted: !it })}
+                {quoteCell(it ? quoteRankTag(quoteRankLabel(it, fa)) : quoteRankTag("—"), { colSpan: 2, muted: !it })}
+                {quoteCell(it ? quoteGapRatio(it, fa) : "—", { colSpan: 2, muted: !it })}
               </tr>
             ))}
             {reason && <tr>{cell(reason, { colSpan: 10, muted: true })}</tr>}
