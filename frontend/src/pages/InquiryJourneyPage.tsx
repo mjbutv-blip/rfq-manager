@@ -19,6 +19,7 @@ import type {
   JourneyFirstRoundAnalysisBundle,
   JourneyFirstRoundFactoryAnalysis,
   JourneyHistoricalPriceReference,
+  InquiryJourney,
   JourneyPriceAnalysis,
   JourneyRound,
 } from "@/types/inquiry_journey"
@@ -38,10 +39,6 @@ function dash(v: string | number | null | undefined): string {
 
 function money(v: number | null | undefined): string {
   return v == null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: 4 })
-}
-
-function pct(v: number | null | undefined): string {
-  return v == null ? "—" : `${v}%`
 }
 
 function ratioPct(v: number | null | undefined): string {
@@ -85,33 +82,6 @@ function roundName(n: number): string {
 function alertType(level?: string): "success" | "info" | "warning" | "error" {
   if (level === "success" || level === "error" || level === "warning") return level
   return "info"
-}
-
-// ── 通用：分区表头条 ────────────────────────────────────────────────────────────
-
-function BandRow({ bands }: { bands: { label: string; color: string; span: number }[] }) {
-  return (
-    <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-      <colgroup>
-        {bands.map((b, i) => <col key={i} span={b.span} />)}
-      </colgroup>
-      <tbody>
-        <tr>
-          {bands.map((b, i) => (
-            <td
-              key={i} colSpan={b.span}
-              style={{
-                background: b.color, color: "#fff", fontWeight: 600, textAlign: "center",
-                padding: "6px 8px", border: "1px solid #fff", fontSize: 13,
-              }}
-            >
-              {b.label}
-            </td>
-          ))}
-        </tr>
-      </tbody>
-    </table>
-  )
 }
 
 function SectionTitle({ label, color }: { label: string; color: string }) {
@@ -741,6 +711,33 @@ function AiAnalysisHints({ analysis }: { analysis: JourneyFirstRoundAnalysisBund
   )
 }
 
+function JourneyTopSummary({
+  inquiry,
+  firstRound,
+}: {
+  inquiry: InquiryJourney["inquiry"]
+  firstRound: JourneyFirstRound
+}) {
+  const fields: ExcelField[] = [
+    { label: "收到客人资料时间", value: dash(firstRound.quote_item?.material_received_date ?? inquiry.inquiry_date) },
+    { label: "客户代码", value: dash(inquiry.customer_code) },
+    { label: "询单号", value: dash(inquiry.inquiry_no) },
+    { label: "订单号", value: dash(inquiry.customer_order_no) },
+    { label: "系列", value: dash(inquiry.series_name) },
+    { label: "季节", value: dash(inquiry.season) },
+    { label: "图片", value: "—" },
+    { label: "品类", value: dash(inquiry.product_category) },
+    { label: "品名", value: dash(inquiry.style_count > 1 ? "多款式" : inquiry.product_name) },
+    { label: "订单状态", value: dash(inquiry.order_status) },
+  ]
+  return (
+    <div style={{ background: "#fff" }}>
+      <FieldGrid fields={fields} />
+      <div style={{ height: 8, background: "#ffff00", border: "1px solid #d9d9d9", borderTop: 0 }} />
+    </div>
+  )
+}
+
 function FirstRoundBlock({
   firstRound,
   inquiryId,
@@ -860,7 +857,7 @@ export default function InquiryJourneyPage() {
     return <div style={{ padding: 24 }}><Alert type="error" message="无法加载来龙去脉表" description={detail} showIcon /></div>
   }
 
-  const { inquiry, customer, applicable_factory, first_round, rounds } = data
+  const { inquiry, first_round, rounds } = data
   const firstRoundAnalysis = analysisOverride ?? first_round.analysis
   const otherRounds = rounds.filter(r => !(r.quote_round === 1 && (r.quote_type ?? "domestic") === "domestic"))
 
@@ -873,78 +870,7 @@ export default function InquiryJourneyPage() {
 
       <div>
         <div>
-          {/* 标题条 */}
-          <div style={{ background: C_DARK_BLUE, color: "#fff", padding: "10px 16px", fontSize: 16, fontWeight: 700 }}>
-            询单报价详情表｜{dash(inquiry.customer_code)}-{inquiry.inquiry_no}
-          </div>
-
-          {/* 基本信息 */}
-          <FieldGrid fields={[
-            { label: "客户代码", value: dash(inquiry.customer_code) },
-            { label: "询单号", value: inquiry.inquiry_no },
-            { label: "客户订单号", value: dash(inquiry.customer_order_no) },
-            { label: "品名", value: dash(inquiry.style_count > 1 ? "多款式" : inquiry.product_name) },
-            { label: "系列", value: dash(inquiry.series_name) },
-            { label: "所属小组", value: dash(inquiry.group_name) },
-            { label: "负责业务员", value: dash(inquiry.responsible_sales) },
-            { label: "询单日期", value: dash(inquiry.inquiry_date) },
-            { label: "客户名称", value: dash(customer?.customer_name ?? inquiry.customer_name) },
-          ]} />
-
-          {/* 报价基本参数 / 订单状态 */}
-          <div style={{ marginTop: 12 }}>
-            <BandRow bands={[
-              { label: "报价基本参数", color: C_DARK_BLUE, span: 8 },
-              { label: "订单状态", color: C_ORANGE, span: 6 },
-            ]} />
-            <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-              <tbody>
-                <tr>
-                  <td style={{ width: "57%" }}>
-                    <FieldGrid fields={[
-                      { label: "订单数量", value: dash(inquiry.order_quantity ?? inquiry.quantity) },
-                      { label: "报价倍数", value: "—" },
-                      { label: "运输费", value: "—" },
-                      { label: "报价汇率", value: "—" },
-                      { label: "最终报价", value: money(inquiry.final_quote) },
-                      { label: "工厂价", value: money(inquiry.factory_price) },
-                      { label: "毛利率", value: pct(inquiry.gross_profit_rate) },
-                      { label: "备注", value: dash(inquiry.remark) },
-                    ]} />
-                  </td>
-                  <td style={{ width: "43%" }}>
-                    <FieldGrid fields={[
-                      { label: "订单状态", value: dash(inquiry.order_status) },
-                      { label: "当下汇率", value: "—" },
-                      { label: "贸易额", value: money(inquiry.trade_amount) },
-                      { label: "备注", value: dash(inquiry.remark) },
-                      { label: "下单日期", value: dash(inquiry.order_date) },
-                      { label: "适用工厂", value: dash(applicable_factory?.factory_name) },
-                    ]} />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* 业务人员报价 */}
-          <div style={{ marginTop: 12 }}>
-            <BandRow bands={[{ label: "业务人员报价", color: C_DARK_BLUE, span: 1 }]} />
-            <FieldGrid fields={[
-              { label: "净利润%", value: "—" },
-              { label: "佣金%", value: "—" },
-              { label: "适用工厂", value: dash(applicable_factory?.factory_name) },
-              {
-                label: "适用工厂价格",
-                value: applicable_factory?.factory_price != null
-                  ? `${money(applicable_factory.factory_price)} ${applicable_factory.currency ?? ""}/${applicable_factory.price_unit ?? ""}`
-                  : "—",
-              },
-              { label: "最终报价", value: money(inquiry.final_quote) },
-              { label: "工厂价", value: money(inquiry.factory_price) },
-              { label: "毛利率", value: pct(inquiry.gross_profit_rate) },
-            ]} />
-          </div>
+          <JourneyTopSummary inquiry={inquiry} firstRound={first_round} />
 
           {/* 工厂报价轮次（核心区域） */}
           <div style={{ marginTop: 16 }}>

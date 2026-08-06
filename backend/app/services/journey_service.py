@@ -94,6 +94,7 @@ def quote_item_brief(item: QuoteItem | None) -> dict[str, Any] | None:
         "included_other_fee_cny": _num(item.included_other_fee_cny),
         "pieces_per_card": item.pieces_per_card,
         "destination_port_count": item.destination_port_count,
+        "material_received_date": item.material_received_date.isoformat() if item.material_received_date else None,
         "exchange_rate": _num(item.exchange_rate),
         "net_profit_pct": _num(item.net_profit_pct),
         "commission_pct": _num(item.commission_pct),

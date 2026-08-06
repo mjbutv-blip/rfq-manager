@@ -56,6 +56,7 @@ export interface JourneyFirstRoundQuoteItem {
   included_other_fee_cny: number | null
   pieces_per_card: number | null
   destination_port_count: number | null
+  material_received_date: string | null
   exchange_rate: number | null
   net_profit_pct: number | null
   commission_pct: number | null
@@ -214,9 +215,11 @@ export interface JourneyInquiry {
   customer_order_no: string | null
   customer_name: string | null
   customer_short_name: string | null
+  product_category: string | null
   product_name: string | null
   style_count: number
   series_name: string | null
+  season: string | null
   group_name: string | null
   responsible_sales: string | null
   inquiry_date: string | null
