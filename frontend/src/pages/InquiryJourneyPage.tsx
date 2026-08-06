@@ -403,13 +403,13 @@ function FirstRoundExcelSheet({
     })
   }, [form, q])
 
-  const border = "1px solid #8c8c8c"
-  const cell = (content: ReactNode, opts: { colSpan?: number; header?: boolean; yellow?: boolean; strong?: boolean; height?: number; align?: "center" | "right" | "left"; muted?: boolean } = {}) => (
+  const border = "1px solid #d9d9d9"
+  const cell = (content: ReactNode, opts: { colSpan?: number; header?: boolean; section?: boolean; strong?: boolean; height?: number; align?: "center" | "right" | "left"; muted?: boolean; color?: string } = {}) => (
     <td colSpan={opts.colSpan} style={{
       border,
-      background: opts.yellow ? "#ffff00" : "#fff",
-      color: opts.muted ? "#8c8c8c" : undefined,
-      fontWeight: opts.header || opts.strong || opts.yellow ? 700 : 400,
+      background: opts.section ? (opts.color ?? C_DARK_BLUE) : opts.header ? C_LABEL_BG : "#fff",
+      color: opts.section ? "#fff" : opts.muted ? "#8c8c8c" : undefined,
+      fontWeight: opts.header || opts.strong || opts.section ? 700 : 400,
       textAlign: opts.align ?? "center",
       verticalAlign: "middle",
       height: opts.height ?? 30,
@@ -435,10 +435,10 @@ function FirstRoundExcelSheet({
       {ctx}
       {!q && <Alert type="info" showIcon style={{ borderRadius: 0, marginBottom: 8 }} message="当前询单尚未创建第一轮国内报价参数记录，填写后可直接保存创建。" />}
       <Form form={form} disabled={!canEdit} onFinish={values => saveMutation.mutate(values)}>
-        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff", border: "1px solid #d9d9d9" }}>
           <colgroup>{Array.from({ length: 10 }).map((_, i) => <col key={i} style={{ width: "10%" }} />)}</colgroup>
           <tbody>
-            <tr>{cell("第一轮报价", { colSpan: 10, yellow: true, height: 36 })}</tr>
+            <tr>{cell("第一轮报价", { colSpan: 10, section: true, height: 36 })}</tr>
             <tr>
               {["安排报价日期", "工厂报价日期", "工厂名称", "工厂价格（/件）", "币种", "价格比对情况", "价格相差比率"].map(h => cell(h, { header: true, height: 28 }))}
               {cell("", { colSpan: 3 })}
@@ -458,8 +458,8 @@ function FirstRoundExcelSheet({
             {reason && <tr>{cell(reason, { colSpan: 10, muted: true })}</tr>}
             <tr>{cell("", { colSpan: 10, height: 18 })}</tr>
             <tr>
-              {cell("价格计算", { colSpan: 5, yellow: true, height: 36 })}
-              {cell("工厂辅助判断区", { colSpan: 5, yellow: true, height: 36 })}
+              {cell("价格计算", { colSpan: 5, section: true, color: C_DARK_BLUE, height: 36 })}
+              {cell("工厂辅助判断区", { colSpan: 5, section: true, color: C_GREEN, height: 36 })}
             </tr>
             <tr>
               {["订单数量", "每卡件数", "算价格数量", "杂费", "包含验货，验厂，海运/空运费（客人要求我们报价需要包含运费的情况）其他费用"].map(h => cell(h, { height: 54 }))}
@@ -479,7 +479,7 @@ function FirstRoundExcelSheet({
             </tr>
             <tr>
               {["测试费", "分批走货", "目的港数量", "港杂费", "佣金"].map(h => cell(h))}
-              {cell("历史价格参考区", { colSpan: 5, yellow: true })}
+              {cell("历史价格参考区", { colSpan: 5, section: true, color: C_LIGHT_BLUE })}
             </tr>
             <tr>
               {cell(input("test_fee_cny"))}
@@ -520,7 +520,7 @@ function FirstRoundExcelSheet({
               {cell("最低工厂问题备注")}
               {cell(dash(risk.risk_notes), { colSpan: 4, align: "left" })}
             </tr>
-            <tr>{cell("目标价分析", { colSpan: 10, yellow: true, height: 36 })}</tr>
+            <tr>{cell("目标价分析", { colSpan: 10, section: true, color: C_DARK_BLUE, height: 36 })}</tr>
             <tr>
               {["目标价", "倒推给工厂目标价格时利润值", "倒推给工厂的目标价格", "达到目标价格毛利润额", "达到目标价格贸易额", "目标价格是否合理", "达到目标价格要降的钱数", "给客人报的价格和目标价比例", "按照达到目标价格的利润值"].map(h => cell(h, { header: true, height: 58 }))}
               {cell("")}
@@ -541,7 +541,7 @@ function FirstRoundExcelSheet({
               {cell("", { colSpan: 5, height: 72 })}
               {cell(target.messages[0]?.message ?? "此处根据目标价、工厂价、费用、佣金和订单量生成分析提示。", { colSpan: 5, align: "left", height: 72 })}
             </tr>
-            <tr>{cell("AI分析提示区", { colSpan: 10, yellow: true, height: 40 })}</tr>
+            <tr>{cell("AI分析提示区", { colSpan: 10, section: true, color: C_DARK_BLUE, height: 40 })}</tr>
           </tbody>
         </table>
         <Space style={{ marginTop: 10 }}>
@@ -629,7 +629,6 @@ function JourneyTopSummary({
   return (
     <div style={{ background: "#fff" }}>
       <FieldGrid fields={fields} />
-      <div style={{ height: 8, background: "#ffff00", border: "1px solid #d9d9d9", borderTop: 0 }} />
     </div>
   )
 }
