@@ -6,7 +6,7 @@
  * 重复保存任何报价数据——每次都是从后端实时计算后展示。
  */
 
-import { useEffect, useState, type ReactNode } from "react"
+import { Fragment, useEffect, useState, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, Button, Form, InputNumber, Select, Space, Spin, Tag, Typography, message } from "antd"
@@ -87,7 +87,8 @@ function SectionTitle({ label, color }: { label: string; color: string }) {
     <div style={{
       background: color, color: "#fff", fontWeight: 700, textAlign: "center",
       padding: "7px 10px", border: "1px solid #d9d9d9", borderBottom: 0,
-      fontSize: 14,
+      fontSize: 13,
+      lineHeight: 1.2,
     }}>
       {label}
     </div>
@@ -114,9 +115,9 @@ function ExcelTwoRowTable({ fields, groups }: { fields?: ExcelField[]; groups?: 
             <tr>
               {row.map(f => (
                 <th key={f.label} style={{
-                  background: C_LABEL_BG, border: "1px solid #bfbfbf", padding: "5px 6px",
+                  background: C_LABEL_BG, border: "1px solid #bfbfbf", padding: "4px 5px",
                   textAlign: "center", fontSize: 12, fontWeight: 600, whiteSpace: "normal",
-                  lineHeight: 1.35, wordBreak: "break-word",
+                  lineHeight: 1.2, wordBreak: "break-word",
                 }}>
                   {f.label}
                 </th>
@@ -126,9 +127,9 @@ function ExcelTwoRowTable({ fields, groups }: { fields?: ExcelField[]; groups?: 
               {row.map(f => (
                 <td key={f.label} style={{
                   background: f.highlight ? "#fff7e6" : "#fff", border: "1px solid #d9d9d9",
-                  padding: "6px 6px", textAlign: "center", fontSize: 12,
+                  padding: "4px 5px", textAlign: "center", fontSize: 12,
                   color: f.highlight ? "#d4380d" : undefined, fontWeight: f.highlight ? 700 : 400,
-                  lineHeight: 1.35, wordBreak: "break-word",
+                  lineHeight: 1.2, wordBreak: "break-word",
                 }}>
                   {f.value}
                 </td>
@@ -151,8 +152,8 @@ function FieldGrid({ fields }: { fields: { label: string; value: ReactNode; high
           {fields.map((f, i) => (
             <td key={`l${i}`} style={{
               background: C_LABEL_BG, fontSize: 12, fontWeight: 500, textAlign: "center",
-              padding: "5px 6px", border: "1px solid #d9d9d9", whiteSpace: "normal",
-              lineHeight: 1.35, wordBreak: "break-word",
+              padding: "4px 5px", border: "1px solid #d9d9d9", whiteSpace: "normal",
+              lineHeight: 1.2, wordBreak: "break-word",
             }}>
               {f.label}
             </td>
@@ -162,9 +163,9 @@ function FieldGrid({ fields }: { fields: { label: string; value: ReactNode; high
           {fields.map((f, i) => (
             <td key={`v${i}`} style={{
               background: f.highlight ? "#fff7e6" : "#fff", fontSize: 13, textAlign: "center",
-              padding: "8px 6px", border: "1px solid #d9d9d9",
+              padding: "5px 5px", border: "1px solid #d9d9d9",
               fontWeight: f.highlight ? 600 : 400, color: f.highlight ? "#d4380d" : undefined,
-              lineHeight: 1.35, wordBreak: "break-word",
+              lineHeight: 1.2, wordBreak: "break-word",
             }}>
               {f.value}
             </td>
@@ -420,15 +421,15 @@ function FirstRoundExcelSheet({
       fontWeight: opts.header || opts.strong || opts.section ? 700 : 400,
       textAlign: opts.align ?? "center",
       verticalAlign: "middle",
-      height: opts.height ?? 30,
-      padding: opts.section ? "7px 10px" : "7px 8px",
-      fontSize: opts.section ? 14 : 13,
-      lineHeight: 1.35,
+      height: opts.height ?? 24,
+      padding: opts.section ? "5px 8px" : "3px 5px",
+      fontSize: opts.section ? 13 : 12,
+      lineHeight: 1.18,
       wordBreak: "break-word",
     }}>{content}</td>
   )
   const quoteCell = (content: ReactNode, opts: { colSpan?: number; header?: boolean; align?: "center" | "right" | "left"; muted?: boolean } = {}) =>
-    cell(content, { ...opts, height: opts.header ? 44 : 36 })
+    cell(content, { ...opts, height: opts.header ? 30 : 26 })
   const input = (name: keyof QuoteItemUpdateBody, precision = 4) => (
     <Form.Item noStyle name={name}>
       <InputNumber size="small" controls={false} min={0} precision={precision} style={{ width: "100%" }} />
@@ -436,6 +437,10 @@ function FirstRoundExcelSheet({
   )
   const targetFeasible = target.target_has_profit == null ? "—" : target.target_has_profit ? (target.target_gross_profit_rate != null && target.target_gross_profit_rate >= 0.15 ? "有利润空间" : "利润较薄") : "可能亏损"
   const displayQuoteRows = [...firstRound.factory_quotes, ...Array(Math.max(0, 3 - firstRound.factory_quotes.length)).fill(null)] as (JourneyFactoryQuoteBrief | null)[]
+  const pairedQuoteRows = Array.from({ length: Math.ceil(displayQuoteRows.length / 2) }, (_, idx) => [
+    displayQuoteRows[idx * 2] ?? null,
+    displayQuoteRows[idx * 2 + 1] ?? null,
+  ])
   const factoryMessages = analysis.analysis_messages.filter(m => ["最低报价差距较大", "最低报价差距明显", "最低报价工厂风险记录", "最低报价工厂限制合作", "工厂问题备注", "建议关注第二低报价工厂"].includes(m.title))
   const reason = analysisReason(fa)
   const targetDiff = target.target_vs_current_diff ?? q?.target_price_gap_usd ?? q?.target_gap_cny
@@ -644,26 +649,28 @@ function FirstRoundExcelSheet({
               <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff", border }}>
                 <tbody>
                   <tr>
-                    {quoteCell("安排报价日期", { header: true })}
-                    {quoteCell("工厂报价日期", { header: true })}
-                    {quoteCell("工厂名称", { header: true })}
-                    {quoteCell("工厂价格（/件）", { header: true })}
-                    {quoteCell("币种", { header: true })}
-                    {quoteCell("价格比对情况", { header: true })}
-                    {quoteCell("价格相差比率", { header: true })}
+                    {quoteCell("工厂 1", { header: true, colSpan: 6 })}
+                    {quoteCell("工厂 2", { header: true, colSpan: 6 })}
                   </tr>
-                  {displayQuoteRows.map((it, idx) => (
-                    <tr key={it?.id ?? `empty-${idx}`}>
-                      {quoteCell("—", { muted: !it })}
-                      {quoteCell(it ? dateText(it.quoted_at ?? it.created_at) : "—", { muted: !it })}
-                      {quoteCell(dash(it?.factory_name), { muted: !it })}
-                      {quoteCell(money(it?.factory_price), { align: "right", muted: !it })}
-                      {quoteCell(dash(it?.currency), { muted: !it })}
-                      {quoteCell(it ? quoteRankTag(quoteRankLabel(it, fa)) : quoteRankTag("—"), { muted: !it })}
-                      {quoteCell(it ? quoteGapRatio(it, fa) : "—", { muted: !it })}
+                  <tr>
+                    {["报价日期", "工厂名称", "工厂价格", "币种", "比对情况", "相差比率"].map(h => quoteCell(h, { header: true }))}
+                    {["报价日期", "工厂名称", "工厂价格", "币种", "比对情况", "相差比率"].map(h => quoteCell(h, { header: true }))}
+                  </tr>
+                  {pairedQuoteRows.map((pair, idx) => (
+                    <tr key={`quote-pair-${idx}`}>
+                      {pair.map((it, sideIdx) => (
+                        <Fragment key={it?.id ?? `empty-${idx}-${sideIdx}`}>
+                          {quoteCell(it ? dateText(it.quoted_at ?? it.created_at) : "—", { muted: !it })}
+                          {quoteCell(dash(it?.factory_name), { muted: !it })}
+                          {quoteCell(money(it?.factory_price), { align: "right", muted: !it })}
+                          {quoteCell(dash(it?.currency), { muted: !it })}
+                          {quoteCell(it ? quoteRankTag(quoteRankLabel(it, fa)) : quoteRankTag("—"), { muted: !it })}
+                          {quoteCell(it ? quoteGapRatio(it, fa) : "—", { muted: !it })}
+                        </Fragment>
+                      ))}
                     </tr>
                   ))}
-                  {reason && <tr>{cell(reason, { colSpan: 7, muted: true })}</tr>}
+                  {reason && <tr>{cell(reason, { colSpan: 12, muted: true })}</tr>}
                 </tbody>
               </table>
             </div>
