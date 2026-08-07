@@ -725,6 +725,7 @@ function SecondRoundExcelBlock({
   const queryClient = useQueryClient()
   const items = roundQuotes(round)
   const q = round.quote_item ?? null
+  const base = firstRound.quote_item
   const analysis = round.analysis
   const fa = analysis?.factory_price_analysis
   const risk = analysis?.factory_risk_analysis
@@ -762,26 +763,27 @@ function SecondRoundExcelBlock({
     onError: (e: Error) => msgApi.error(`保存失败：${e.message}`),
   })
   useEffect(() => {
+    const source = q ?? base
     form.setFieldsValue({
-      order_quantity: q?.order_quantity ?? null,
-      pieces_per_card: q?.pieces_per_card ?? null,
-      calc_quantity: q?.calc_quantity ?? null,
-      misc_fee_cny: q?.misc_fee_cny ?? null,
-      included_other_fee_cny: q?.included_other_fee_cny ?? null,
-      test_fee_cny: q?.test_fee_cny ?? null,
-      batch_shipment_count: q?.batch_shipment_count ?? null,
-      destination_port_count: q?.destination_port_count ?? null,
-      port_misc_fee_cny: q?.port_misc_fee_cny ?? null,
-      commission_pct: q?.commission_pct ?? null,
-      exchange_rate: q?.exchange_rate ?? null,
+      order_quantity: source?.order_quantity ?? null,
+      pieces_per_card: source?.pieces_per_card ?? null,
+      calc_quantity: source?.calc_quantity ?? null,
+      misc_fee_cny: source?.misc_fee_cny ?? null,
+      included_other_fee_cny: source?.included_other_fee_cny ?? null,
+      test_fee_cny: source?.test_fee_cny ?? null,
+      batch_shipment_count: source?.batch_shipment_count ?? null,
+      destination_port_count: source?.destination_port_count ?? null,
+      port_misc_fee_cny: source?.port_misc_fee_cny ?? null,
+      commission_pct: source?.commission_pct ?? null,
+      exchange_rate: source?.exchange_rate ?? null,
       selected_factory: q?.selected_factory ?? null,
       selected_factory_price_cny: q?.selected_factory_price_cny ?? null,
-      net_profit_pct: q?.net_profit_pct ?? null,
+      net_profit_pct: source?.net_profit_pct ?? null,
       final_quote_usd: q?.final_quote_usd ?? null,
-      current_exchange_rate: q?.current_exchange_rate ?? null,
-      customer_target_price_usd: q?.customer_target_price_usd ?? null,
+      current_exchange_rate: source?.current_exchange_rate ?? null,
+      customer_target_price_usd: source?.customer_target_price_usd ?? null,
     })
-  }, [form, q])
+  }, [base, form, q])
   const border = "1px solid #d9d9d9"
   const cell = (content: ReactNode, opts: { colSpan?: number; header?: boolean; section?: boolean; strong?: boolean; height?: number; align?: "center" | "right" | "left"; muted?: boolean } = {}) => (
     <td colSpan={opts.colSpan} style={{

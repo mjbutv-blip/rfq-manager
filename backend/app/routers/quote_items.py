@@ -67,6 +67,74 @@ def _clean_payload(body: QuoteItemUpdate) -> dict[str, Any]:
     return data
 
 
+def _num(value: Any) -> Decimal | None:
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
+def _apply_quote_calculations(item: QuoteItem) -> None:
+    qty = item.order_quantity or item.calc_quantity
+    final_quote = _num(item.final_quote_usd)
+    target = _num(item.customer_target_price_usd)
+    factory_price = _num(item.selected_factory_price_cny)
+    exchange_rate = _num(item.current_exchange_rate) or _num(item.exchange_rate)
+    port_misc = _num(item.port_misc_fee_cny) or Decimal("0")
+    test_fee = _num(item.test_fee_cny) or Decimal("0")
+    misc_fee = _num(item.misc_fee_cny) or Decimal("0")
+    commission_pct = (_num(item.commission_pct) or Decimal("0")) / Decimal("100")
+    net_profit_pct = (_num(item.net_profit_pct) or Decimal("0")) / Decimal("100")
+
+    if qty and final_quote is not None:
+        item.trade_amount_usd = final_quote * Decimal(qty)
+    else:
+        item.trade_amount_usd = None
+
+    if item.trade_amount_usd is not None and exchange_rate is not None and factory_price is not None and qty:
+        sales_cny = _num(item.trade_amount_usd) * exchange_rate
+        cost_cny = (factory_price + port_misc + test_fee + misc_fee) * Decimal(qty)
+        commission_cny = sales_cny * commission_pct
+        item.gross_profit_cny = sales_cny - cost_cny - commission_cny
+        item.gross_profit_pct = (item.gross_profit_cny / sales_cny * Decimal("100")) if sales_cny else None
+    else:
+        item.gross_profit_cny = None
+        item.gross_profit_pct = None
+
+    if target is not None and final_quote is not None:
+        item.quote_vs_target_ratio = final_quote / target if target else None
+        item.target_price_gap_usd = target - final_quote
+    else:
+        item.quote_vs_target_ratio = None
+        item.target_price_gap_usd = None
+
+    if target is not None and qty:
+        item.target_trade_amount_usd = target * Decimal(qty)
+    else:
+        item.target_trade_amount_usd = None
+
+    if item.target_trade_amount_usd is not None and exchange_rate is not None and factory_price is not None and qty:
+        target_sales_cny = _num(item.target_trade_amount_usd) * exchange_rate
+        target_cost_cny = (factory_price + port_misc + test_fee + misc_fee) * Decimal(qty)
+        target_commission_cny = target_sales_cny * commission_pct
+        item.target_gross_profit_cny = target_sales_cny - target_cost_cny - target_commission_cny
+        item.target_profit_value = item.target_gross_profit_cny
+        desired_profit_cny = target_sales_cny * net_profit_pct
+        item.reverse_target_profit_value = desired_profit_cny
+        item.reverse_target_price_cny = (
+            (target_sales_cny - target_commission_cny - desired_profit_cny) / Decimal(qty)
+            - port_misc
+            - test_fee
+            - misc_fee
+        )
+    else:
+        item.target_gross_profit_cny = None
+        item.target_profit_value = None
+        item.reverse_target_profit_value = None
+        item.reverse_target_price_cny = None
+
+
 @router.patch("/quote-items/{quote_item_id}")
 async def update_quote_item(
     quote_item_id: uuid.UUID,
@@ -94,6 +162,7 @@ async def update_quote_item(
     for key, value in payload.items():
         if key in EDITABLE_QUOTE_ITEM_FIELDS:
             setattr(item, key, value)
+    _apply_quote_calculations(item)
 
     await db.commit()
     await db.refresh(item)
@@ -149,6 +218,7 @@ async def create_first_round_quote_item(
     for key, value in payload.items():
         if key in EDITABLE_QUOTE_ITEM_FIELDS:
             setattr(item, key, value)
+    _apply_quote_calculations(item)
 
     db.add(item)
     await db.commit()
