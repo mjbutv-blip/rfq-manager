@@ -544,33 +544,29 @@ function FirstRoundExcelSheet({
             </tr>
             <tr>
               {cell("目标价")}
-              {cell("倒推给工厂目标价格时利润值", { colSpan: 2 })}
-              {cell("倒推给工厂的目标价格", { colSpan: 2 })}
-              {cell("达到目标价格毛利润额", { colSpan: 2 })}
-              {cell("达到目标价格贸易额", { colSpan: 3 })}
+              {cell("倒推给工厂目标价格时利润值")}
+              {cell("倒推给工厂的目标价格")}
+              {cell("达到目标价格毛利润额")}
+              {cell("达到目标价格贸易额")}
+              {cell("目标价分析", { colSpan: 5, section: true, color: C_DARK_BLUE, height: 36 })}
             </tr>
             <tr>
               {cell(input("customer_target_price_usd"))}
-              {cell(money(q?.reverse_target_profit_value), { colSpan: 2 })}
-              {cell(money(q?.reverse_target_price_cny), { colSpan: 2, strong: true })}
-              {cell(money(target.target_gross_profit_cny ?? q?.target_gross_profit_cny), { colSpan: 2, strong: true })}
-              {cell(money(target.target_sales_amount_usd ?? q?.target_trade_amount_usd), { colSpan: 3 })}
-            </tr>
-            <tr>{cell("目标价分析", { colSpan: 10, section: true, color: C_DARK_BLUE, height: 36 })}</tr>
-            <tr>
-              {cell("目标价格是否合理", { colSpan: 2, header: true, height: 58 })}
-              {cell("达到目标价格要降的钱数", { colSpan: 2, header: true, height: 58 })}
-              {cell("给客人报的价格和目标价比例", { colSpan: 2, header: true, height: 58 })}
-              {cell("按照达到目标价格的利润值", { colSpan: 4, header: true, height: 58 })}
+              {cell(money(q?.reverse_target_profit_value))}
+              {cell(money(q?.reverse_target_price_cny), { strong: true })}
+              {cell(money(target.target_gross_profit_cny ?? q?.target_gross_profit_cny), { strong: true })}
+              {cell(money(target.target_sales_amount_usd ?? q?.target_trade_amount_usd))}
+              {cell("目标价格是否合理", { header: true, height: 58 })}
+              {cell("达到目标价格要降的钱数", { header: true, height: 58 })}
+              {cell("给客人报的价格和目标价比例", { header: true, height: 58 })}
+              {cell("按照达到目标价格的利润值", { colSpan: 2, header: true, height: 58 })}
             </tr>
             <tr>
-              {cell(targetFeasible, { colSpan: 2, strong: true })}
-              {cell(signedMoney(target.target_vs_current_diff ?? q?.target_price_gap_usd ?? q?.target_gap_cny), { colSpan: 2, strong: true })}
-              {cell(ratioPct(q?.quote_vs_target_ratio ?? target.target_vs_current_diff_pct), { colSpan: 2 })}
-              {cell(money(q?.target_profit_value), { colSpan: 4 })}
-            </tr>
-            <tr>
-              {cell(target.messages[0]?.message ?? "此处根据目标价、工厂价、费用、佣金和订单量生成分析提示。", { colSpan: 10, align: "left", height: 72 })}
+              {cell("", { colSpan: 5, height: 72 })}
+              {cell(target.messages[0]?.message ?? targetFeasible, { align: "left", height: 72 })}
+              {cell(signedMoney(target.target_vs_current_diff ?? q?.target_price_gap_usd ?? q?.target_gap_cny), { strong: true })}
+              {cell(ratioPct(q?.quote_vs_target_ratio ?? target.target_vs_current_diff_pct))}
+              {cell(money(q?.target_profit_value), { colSpan: 2 })}
             </tr>
             <tr>{cell("AI分析提示区", { colSpan: 10, section: true, color: C_DARK_BLUE, height: 40 })}</tr>
           </tbody>
