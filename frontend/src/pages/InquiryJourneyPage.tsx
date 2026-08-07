@@ -6,7 +6,7 @@
  * 重复保存任何报价数据——每次都是从后端实时计算后展示。
  */
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react"
+import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, Button, Form, InputNumber, Select, Space, Spin, Tag, Typography, message } from "antd"
@@ -445,6 +445,12 @@ function FirstRoundExcelSheet({
   const selectedRankText = fa.selected_factory_rank == null ? "—" : fa.selected_factory_rank === 1 ? "最低" : fa.selected_factory_rank === 2 ? "第二低" : `第${fa.selected_factory_rank}低`
   const targetFeasible = target.target_has_profit == null ? "—" : target.target_has_profit ? (target.target_gross_profit_rate != null && target.target_gross_profit_rate >= 0.15 ? "有利润空间" : "利润较薄") : "可能亏损"
   const displayQuoteRows = [...firstRound.factory_quotes, ...Array(Math.max(0, 3 - firstRound.factory_quotes.length)).fill(null)] as (JourneyFactoryQuoteBrief | null)[]
+  const leftQuoteRows = displayQuoteRows.filter((_, idx) => idx % 2 === 0)
+  const rightQuoteRows = displayQuoteRows.filter((_, idx) => idx % 2 === 1)
+  const pairedQuoteRows = Array.from(
+    { length: Math.max(leftQuoteRows.length, rightQuoteRows.length) },
+    (_, idx) => [leftQuoteRows[idx] ?? null, rightQuoteRows[idx] ?? null],
+  )
   const factoryMessages = analysis.analysis_messages.filter(m => ["最低报价差距较大", "最低报价差距明显", "最低报价工厂风险记录", "最低报价工厂限制合作", "工厂问题备注", "建议关注第二低报价工厂"].includes(m.title))
   const reason = analysisReason(fa)
 
@@ -458,23 +464,24 @@ function FirstRoundExcelSheet({
           <tbody>
             <tr>{cell("第一轮报价", { colSpan: 10, section: true, height: 36 })}</tr>
             <tr>
-              {quoteCell("安排报价日期", { header: true })}
-              {quoteCell("工厂报价日期", { header: true })}
-              {quoteCell("工厂名称", { header: true, colSpan: 2 })}
-              {quoteCell("工厂价格（/件）", { header: true })}
-              {quoteCell("币种", { header: true })}
-              {quoteCell("价格比对情况", { header: true, colSpan: 2 })}
-              {quoteCell("价格相差比率", { header: true, colSpan: 2 })}
+              {quoteCell("工厂 1 / 3 / 5 ...", { header: true, colSpan: 5 })}
+              {quoteCell("工厂 2 / 4 / 6 ...", { header: true, colSpan: 5 })}
             </tr>
-            {displayQuoteRows.map((it, idx) => (
-              <tr key={it?.id ?? `empty-${idx}`}>
-                {quoteCell("—", { muted: !it })}
-                {quoteCell(it ? dateText(it.quoted_at ?? it.created_at) : "—", { muted: !it })}
-                {quoteCell(dash(it?.factory_name), { colSpan: 2, muted: !it })}
-                {quoteCell(money(it?.factory_price), { align: "right", muted: !it })}
-                {quoteCell(dash(it?.currency), { muted: !it })}
-                {quoteCell(it ? quoteRankTag(quoteRankLabel(it, fa)) : quoteRankTag("—"), { colSpan: 2, muted: !it })}
-                {quoteCell(it ? quoteGapRatio(it, fa) : "—", { colSpan: 2, muted: !it })}
+            <tr>
+              {["报价日期", "工厂名称", "工厂价格", "比对情况", "相差比率"].map(h => quoteCell(h, { header: true }))}
+              {["报价日期", "工厂名称", "工厂价格", "比对情况", "相差比率"].map(h => quoteCell(h, { header: true }))}
+            </tr>
+            {pairedQuoteRows.map((pair, idx) => (
+              <tr key={`first-round-pair-${idx}`}>
+                {pair.map((it, sideIdx) => [
+                  quoteCell(it ? dateText(it.quoted_at ?? it.created_at) : "—", { muted: !it }),
+                  quoteCell(dash(it?.factory_name), { muted: !it }),
+                  quoteCell(it ? priceWithUnit(it.factory_price, it.currency, it.price_unit) : "—", { align: "right", muted: !it }),
+                  quoteCell(it ? quoteRankTag(quoteRankLabel(it, fa)) : quoteRankTag("—"), { muted: !it }),
+                  quoteCell(it ? quoteGapRatio(it, fa) : "—", { muted: !it }),
+                ].map((node, cellIdx) => (
+                  <Fragment key={`${it?.id ?? `empty-${idx}-${sideIdx}`}-${cellIdx}`}>{node}</Fragment>
+                )))}
               </tr>
             ))}
             {reason && <tr>{cell(reason, { colSpan: 10, muted: true })}</tr>}
