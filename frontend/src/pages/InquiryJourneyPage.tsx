@@ -542,7 +542,7 @@ function FirstRoundExcelSheet({
               {cell("最低工厂问题备注")}
               {cell(dash(risk.risk_notes), { colSpan: 4, align: "left" })}
             </tr>
-            <tr>{cell("目标价分析", { colSpan: 10, section: true, color: C_DARK_BLUE, height: 36 })}</tr>
+            <tr>{cell("目标价计算", { colSpan: 10, section: true, color: C_DARK_BLUE, height: 36 })}</tr>
             <tr>
               {["目标价", "倒推给工厂目标价格时利润值", "倒推给工厂的目标价格", "达到目标价格毛利润额", "达到目标价格贸易额", "目标价格是否合理", "达到目标价格要降的钱数", "给客人报的价格和目标价比例", "按照达到目标价格的利润值"].map(h => cell(h, { header: true, height: 58 }))}
               {cell("")}
