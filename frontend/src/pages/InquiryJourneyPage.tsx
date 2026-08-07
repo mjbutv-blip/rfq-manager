@@ -937,6 +937,26 @@ function SecondRoundExcelBlock({
             {cell(money(q?.target_profit_value))}
           </tr>
           <tr>{cell("AI分析提示区", { colSpan: 10, section: true, height: 40 })}</tr>
+          <tr>
+            {cell(
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 8 }}>
+                {(analysis?.ai_analysis_messages ?? []).map((section, idx) => (
+                  <div key={section.title} style={{ border: "1px solid #f0f0f0", padding: "6px 8px", background: "#fafafa" }}>
+                    <Text strong style={{ fontSize: 12 }}>{idx + 1}. {section.title}</Text>
+                    <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+                      {(section.items ?? []).map((item, itemIdx) => (
+                        <li key={itemIdx} style={{ lineHeight: 1.35, fontSize: 12 }}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+                {!analysis?.ai_analysis_messages?.length && (
+                  <Text type="secondary">当前暂无分析提示，请先保存第二轮报价参数或录入第二轮工厂报价。</Text>
+                )}
+              </div>,
+              { colSpan: 10, align: "left", height: 72 },
+            )}
+          </tr>
           </tbody>
         </table>
         <Space style={{ marginTop: 10 }}>
