@@ -67,10 +67,6 @@ function priceWithUnit(value: number | null | undefined, currency?: string | nul
   return `${money(value)}${suffix ? ` ${suffix}` : ""}`
 }
 
-function dateText(v: string | null | undefined): string {
-  return v ? new Date(v).toLocaleDateString("zh-CN") : "—"
-}
-
 function quoteTypeName(v: string | null | undefined): string {
   return v === "overseas" ? "海外" : "国内"
 }
@@ -444,13 +440,7 @@ function FirstRoundExcelSheet({
   )
   const selectedRankText = fa.selected_factory_rank == null ? "—" : fa.selected_factory_rank === 1 ? "最低" : fa.selected_factory_rank === 2 ? "第二低" : `第${fa.selected_factory_rank}低`
   const targetFeasible = target.target_has_profit == null ? "—" : target.target_has_profit ? (target.target_gross_profit_rate != null && target.target_gross_profit_rate >= 0.15 ? "有利润空间" : "利润较薄") : "可能亏损"
-  const displayQuoteRows = [...firstRound.factory_quotes, ...Array(Math.max(0, 3 - firstRound.factory_quotes.length)).fill(null)] as (JourneyFactoryQuoteBrief | null)[]
-  const leftQuoteRows = displayQuoteRows.filter((_, idx) => idx % 2 === 0)
-  const rightQuoteRows = displayQuoteRows.filter((_, idx) => idx % 2 === 1)
-  const pairedQuoteRows = Array.from(
-    { length: Math.max(leftQuoteRows.length, rightQuoteRows.length) },
-    (_, idx) => [leftQuoteRows[idx] ?? null, rightQuoteRows[idx] ?? null],
-  )
+  const factoryQuoteColumns = [...firstRound.factory_quotes, ...Array(Math.max(0, 9 - firstRound.factory_quotes.length)).fill(null)].slice(0, 9) as (JourneyFactoryQuoteBrief | null)[]
   const factoryMessages = analysis.analysis_messages.filter(m => ["最低报价差距较大", "最低报价差距明显", "最低报价工厂风险记录", "最低报价工厂限制合作", "工厂问题备注", "建议关注第二低报价工厂"].includes(m.title))
   const reason = analysisReason(fa)
 
@@ -464,22 +454,25 @@ function FirstRoundExcelSheet({
           <tbody>
             <tr>{cell("第一轮报价", { colSpan: 10, section: true, height: 36 })}</tr>
             <tr>
-              {["报价日期", "工厂名称", "工厂价格", "比对情况", "相差比率"].map(h => quoteCell(h, { header: true }))}
-              {["报价日期", "工厂名称", "工厂价格", "比对情况", "相差比率"].map(h => quoteCell(h, { header: true }))}
+              {quoteCell("工厂名称", { header: true })}
+              {factoryQuoteColumns.map((it, idx) => <Fragment key={`first-name-${it?.id ?? idx}`}>{quoteCell(dash(it?.factory_name), { muted: !it })}</Fragment>)}
             </tr>
-            {pairedQuoteRows.map((pair, idx) => (
-              <tr key={`first-round-pair-${idx}`}>
-                {pair.map((it, sideIdx) => [
-                  quoteCell(it ? dateText(it.quoted_at ?? it.created_at) : "—", { muted: !it }),
-                  quoteCell(dash(it?.factory_name), { muted: !it }),
-                  quoteCell(it ? priceWithUnit(it.factory_price, it.currency, it.price_unit) : "—", { align: "right", muted: !it }),
-                  quoteCell(it ? quoteRankTag(quoteRankLabel(it, fa)) : quoteRankTag("—"), { muted: !it }),
-                  quoteCell(it ? quoteGapRatio(it, fa) : "—", { muted: !it }),
-                ].map((node, cellIdx) => (
-                  <Fragment key={`${it?.id ?? `empty-${idx}-${sideIdx}`}-${cellIdx}`}>{node}</Fragment>
-                )))}
-              </tr>
-            ))}
+            <tr>
+              {quoteCell("工厂价格", { header: true })}
+              {factoryQuoteColumns.map((it, idx) => <Fragment key={`first-price-${it?.id ?? idx}`}>{quoteCell(it ? money(it.factory_price) : "—", { align: "right", muted: !it })}</Fragment>)}
+            </tr>
+            <tr>
+              {quoteCell("币种", { header: true })}
+              {factoryQuoteColumns.map((it, idx) => <Fragment key={`first-currency-${it?.id ?? idx}`}>{quoteCell(dash(it?.currency), { muted: !it })}</Fragment>)}
+            </tr>
+            <tr>
+              {quoteCell("各个工厂价格比对情况", { header: true })}
+              {factoryQuoteColumns.map((it, idx) => <Fragment key={`first-rank-${it?.id ?? idx}`}>{quoteCell(it ? quoteRankTag(quoteRankLabel(it, fa)) : quoteRankTag("—"), { muted: !it })}</Fragment>)}
+            </tr>
+            <tr>
+              {quoteCell("各个工厂价格相差比率", { header: true })}
+              {factoryQuoteColumns.map((it, idx) => <Fragment key={`first-gap-${it?.id ?? idx}`}>{quoteCell(it ? quoteGapRatio(it, fa) : "—", { muted: !it })}</Fragment>)}
+            </tr>
             {reason && <tr>{cell(reason, { colSpan: 10, muted: true })}</tr>}
             <tr>{cell("", { colSpan: 10, height: 18 })}</tr>
             <tr>
