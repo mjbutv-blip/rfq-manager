@@ -446,12 +446,45 @@ function FirstRoundExcelSheet({
   const targetDiff = target.target_vs_current_diff ?? q?.target_price_gap_usd ?? q?.target_gap_cny
   const targetRatio = q?.quote_vs_target_ratio ?? target.target_vs_current_diff_pct
   const targetAlert = target.messages[0]
+  const firstRoundQuoteTable = (
+    <div style={{ marginBottom: 10 }}>
+      <SectionTitle label="第一轮报价记录" color={C_DARK_BLUE} />
+      <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff", border }}>
+        <tbody>
+          <tr>
+            {quoteCell("工厂 1", { header: true, colSpan: 6 })}
+            {quoteCell("工厂 2", { header: true, colSpan: 6 })}
+          </tr>
+          <tr>
+            {["报价日期", "工厂名称", "工厂价格", "币种", "比对情况", "相差比率"].map(h => quoteCell(h, { header: true }))}
+            {["报价日期", "工厂名称", "工厂价格", "币种", "比对情况", "相差比率"].map(h => quoteCell(h, { header: true }))}
+          </tr>
+          {pairedQuoteRows.map((pair, idx) => (
+            <tr key={`quote-pair-${idx}`}>
+              {pair.map((it, sideIdx) => (
+                <Fragment key={it?.id ?? `empty-${idx}-${sideIdx}`}>
+                  {quoteCell(it ? dateText(it.quoted_at ?? it.created_at) : "—", { muted: !it })}
+                  {quoteCell(dash(it?.factory_name), { muted: !it })}
+                  {quoteCell(money(it?.factory_price), { align: "right", muted: !it })}
+                  {quoteCell(dash(it?.currency), { muted: !it })}
+                  {quoteCell(it ? quoteRankTag(quoteRankLabel(it, fa)) : quoteRankTag("—"), { muted: !it })}
+                  {quoteCell(it ? quoteGapRatio(it, fa) : "—", { muted: !it })}
+                </Fragment>
+              ))}
+            </tr>
+          ))}
+          {reason && <tr>{cell(reason, { colSpan: 12, muted: true })}</tr>}
+        </tbody>
+      </table>
+    </div>
+  )
 
   return (
     <div>
       {ctx}
       {!q && <Alert type="info" showIcon style={{ borderRadius: 0, marginBottom: 8 }} message="当前询单尚未创建第一轮国内报价参数记录，填写后可直接保存创建。" />}
       <Form form={form} disabled={!canEdit} onFinish={values => saveMutation.mutate(values)}>
+        {firstRoundQuoteTable}
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12, alignItems: "start" }}>
           <div style={{ minWidth: 0 }}>
             <SectionTitle label="客人目标价可行性分析区" color="#f47721" />
@@ -644,36 +677,6 @@ function FirstRoundExcelSheet({
               )}
             </div>
 
-            <div style={{ marginTop: 10 }}>
-              <SectionTitle label="第一轮报价记录" color={C_DARK_BLUE} />
-              <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff", border }}>
-                <tbody>
-                  <tr>
-                    {quoteCell("工厂 1", { header: true, colSpan: 6 })}
-                    {quoteCell("工厂 2", { header: true, colSpan: 6 })}
-                  </tr>
-                  <tr>
-                    {["报价日期", "工厂名称", "工厂价格", "币种", "比对情况", "相差比率"].map(h => quoteCell(h, { header: true }))}
-                    {["报价日期", "工厂名称", "工厂价格", "币种", "比对情况", "相差比率"].map(h => quoteCell(h, { header: true }))}
-                  </tr>
-                  {pairedQuoteRows.map((pair, idx) => (
-                    <tr key={`quote-pair-${idx}`}>
-                      {pair.map((it, sideIdx) => (
-                        <Fragment key={it?.id ?? `empty-${idx}-${sideIdx}`}>
-                          {quoteCell(it ? dateText(it.quoted_at ?? it.created_at) : "—", { muted: !it })}
-                          {quoteCell(dash(it?.factory_name), { muted: !it })}
-                          {quoteCell(money(it?.factory_price), { align: "right", muted: !it })}
-                          {quoteCell(dash(it?.currency), { muted: !it })}
-                          {quoteCell(it ? quoteRankTag(quoteRankLabel(it, fa)) : quoteRankTag("—"), { muted: !it })}
-                          {quoteCell(it ? quoteGapRatio(it, fa) : "—", { muted: !it })}
-                        </Fragment>
-                      ))}
-                    </tr>
-                  ))}
-                  {reason && <tr>{cell(reason, { colSpan: 12, muted: true })}</tr>}
-                </tbody>
-              </table>
-            </div>
           </div>
         </div>
         <Space style={{ marginTop: 10 }}>
