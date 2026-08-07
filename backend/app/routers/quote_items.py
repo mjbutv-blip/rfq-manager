@@ -4,7 +4,7 @@ import uuid
 from decimal import Decimal
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,7 @@ from app.services.operation_log_service import log_kwargs_from_user, safe_log, s
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 router = APIRouter(tags=["quote-items"])
 
-EDITABLE_FIRST_ROUND_FIELDS = (
+EDITABLE_QUOTE_ITEM_FIELDS = (
     "order_quantity",
     "calc_quantity",
     "batch_shipment_count",
@@ -37,6 +37,7 @@ EDITABLE_FIRST_ROUND_FIELDS = (
     "current_exchange_rate",
     "customer_target_price_usd",
 )
+EDITABLE_FIRST_ROUND_FIELDS = EDITABLE_QUOTE_ITEM_FIELDS
 
 
 class QuoteItemUpdate(BaseModel):
@@ -77,8 +78,8 @@ async def update_quote_item(
     item = await db.get(QuoteItem, quote_item_id)
     if not item:
         raise HTTPException(status_code=404, detail="报价参数不存在")
-    if item.quote_round != 1 or item.quote_type != "domestic":
-        raise HTTPException(status_code=422, detail="本接口仅支持第一轮国内报价参数")
+    if item.quote_type != "domestic":
+        raise HTTPException(status_code=422, detail="本接口仅支持国内报价参数")
 
     inq = await db.get(Inquiry, item.inquiry_id)
     if not inq:
@@ -88,10 +89,10 @@ async def update_quote_item(
     if not can_edit_inquiry(inq, user):
         raise HTTPException(status_code=403, detail="无权编辑该询单报价参数")
 
-    before = snapshot(item, EDITABLE_FIRST_ROUND_FIELDS)
+    before = snapshot(item, EDITABLE_QUOTE_ITEM_FIELDS)
     payload = _clean_payload(body)
     for key, value in payload.items():
-        if key in EDITABLE_FIRST_ROUND_FIELDS:
+        if key in EDITABLE_QUOTE_ITEM_FIELDS:
             setattr(item, key, value)
 
     await db.commit()
@@ -103,9 +104,9 @@ async def update_quote_item(
         target_id=str(item.id),
         inquiry_id=item.inquiry_id,
         inquiry_no=inq.inquiry_no,
-        description="保存第一轮国内报价参数",
+        description=f"保存第{item.quote_round}轮国内报价参数",
         before_data=before,
-        after_data=snapshot(item, EDITABLE_FIRST_ROUND_FIELDS),
+        after_data=snapshot(item, EDITABLE_QUOTE_ITEM_FIELDS),
         request=request,
     )
     return quote_item_brief(item)
@@ -118,6 +119,7 @@ async def create_first_round_quote_item(
     db: DbDep,
     user: UserDep,
     request: Request,
+    quote_round: int = Query(1, ge=1),
 ):
     inq = await db.get(Inquiry, inquiry_id)
     if not inq:
@@ -131,21 +133,21 @@ async def create_first_round_quote_item(
         select(QuoteItem).where(
             QuoteItem.inquiry_id == inquiry_id,
             QuoteItem.quote_type == "domestic",
-            QuoteItem.quote_round == 1,
+            QuoteItem.quote_round == quote_round,
         )
     )).scalars().first()
     if existing:
-        raise HTTPException(status_code=409, detail="第一轮国内报价参数已存在，请直接编辑")
+        raise HTTPException(status_code=409, detail=f"第{quote_round}轮国内报价参数已存在，请直接编辑")
 
     item = QuoteItem(
         id=uuid.uuid4(),
         inquiry_id=inquiry_id,
         quote_type="domestic",
-        quote_round=1,
+        quote_round=quote_round,
     )
     payload = _clean_payload(body)
     for key, value in payload.items():
-        if key in EDITABLE_FIRST_ROUND_FIELDS:
+        if key in EDITABLE_QUOTE_ITEM_FIELDS:
             setattr(item, key, value)
 
     db.add(item)
@@ -158,8 +160,8 @@ async def create_first_round_quote_item(
         target_id=str(item.id),
         inquiry_id=item.inquiry_id,
         inquiry_no=inq.inquiry_no,
-        description="创建第一轮国内报价参数",
-        after_data=snapshot(item, EDITABLE_FIRST_ROUND_FIELDS),
+        description=f"创建第{quote_round}轮国内报价参数",
+        after_data=snapshot(item, EDITABLE_QUOTE_ITEM_FIELDS),
         request=request,
     )
     return quote_item_brief(item)

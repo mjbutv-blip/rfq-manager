@@ -32,8 +32,14 @@ export async function updateQuoteItem(quoteItemId: string, body: QuoteItemUpdate
   return data
 }
 
-export async function createFirstRoundQuoteItem(inquiryId: string, body: QuoteItemUpdateBody): Promise<JourneyFirstRoundQuoteItem> {
-  const { data } = await client.post<JourneyFirstRoundQuoteItem>(`/inquiries/${inquiryId}/quote-items`, body)
+export async function createFirstRoundQuoteItem(
+  inquiryId: string,
+  body: QuoteItemUpdateBody,
+  options?: { quoteRound?: number },
+): Promise<JourneyFirstRoundQuoteItem> {
+  const { data } = await client.post<JourneyFirstRoundQuoteItem>(`/inquiries/${inquiryId}/quote-items`, body, {
+    params: { quote_round: options?.quoteRound ?? 1 },
+  })
   return data
 }
 

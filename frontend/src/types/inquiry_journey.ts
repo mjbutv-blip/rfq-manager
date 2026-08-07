@@ -37,6 +37,8 @@ export interface JourneyPriceAnalysis {
 export interface JourneyRound {
   quote_type: "domestic" | "overseas" | string
   quote_round: number
+  quote_item?: JourneyFirstRoundQuoteItem | null
+  analysis?: JourneyFirstRoundAnalysisBundle
   factory1: JourneyFactoryQuoteBrief | null
   factory2: JourneyFactoryQuoteBrief | null
   other_factories: JourneyFactoryQuoteBrief[]

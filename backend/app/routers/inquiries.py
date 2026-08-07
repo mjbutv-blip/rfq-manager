@@ -200,6 +200,7 @@ async def get_inquiry_journey(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
         build_first_round_view,
         build_rounds,
         find_applicable_factory_quote,
+        quote_item_brief,
     )
 
     inq = await db.get(Inquiry, inquiry_id)
@@ -227,13 +228,14 @@ async def get_inquiry_journey(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
 
     rounds = build_rounds(list(all_quotes))
 
-    first_round_quote_item = (await db.execute(
+    quote_items = (await db.execute(
         select(QuoteItem).where(
             QuoteItem.inquiry_id == inquiry_id,
-            QuoteItem.quote_round == 1,
             QuoteItem.quote_type == "domestic",
         )
-    )).scalars().first()
+    )).scalars().all()
+    quote_item_by_round = {item.quote_round: item for item in quote_items}
+    first_round_quote_item = quote_item_by_round.get(1)
     first_round_quotes = [
         q for q in all_quotes
         if q.quote_round == 1 and (q.quote_type or "domestic") == "domestic"
@@ -242,6 +244,21 @@ async def get_inquiry_journey(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
     first_round["analysis"] = await build_first_round_analysis_bundle(
         db, inq, first_round_quote_item, first_round_quotes
     )
+    for round_view in rounds:
+        if (round_view.get("quote_type") or "domestic") != "domestic":
+            continue
+        round_no = round_view.get("quote_round")
+        if round_no == 1:
+            continue
+        round_quote_item = quote_item_by_round.get(round_no)
+        round_cards = [
+            q for q in all_quotes
+            if q.quote_round == round_no and (q.quote_type or "domestic") == "domestic"
+        ]
+        round_view["quote_item"] = quote_item_brief(round_quote_item)
+        round_view["analysis"] = await build_first_round_analysis_bundle(
+            db, inq, round_quote_item, round_cards
+        )
 
     applicable_factory = None
     if inq.applicable_factory_id:

@@ -707,8 +707,31 @@ function factoryNameKey(name: string | null | undefined): string {
   return (name ?? "").trim().toLowerCase()
 }
 
-function SecondRoundExcelBlock({ round, firstRound }: { round: JourneyRound; firstRound: JourneyFirstRound }) {
+function SecondRoundExcelBlock({
+  round,
+  firstRound,
+  inquiryId,
+  canEdit,
+  onSaved,
+}: {
+  round: JourneyRound
+  firstRound: JourneyFirstRound
+  inquiryId: string
+  canEdit: boolean
+  onSaved: () => void
+}) {
+  const [form] = Form.useForm()
+  const [msgApi, ctx] = message.useMessage()
+  const queryClient = useQueryClient()
   const items = roundQuotes(round)
+  const q = round.quote_item ?? null
+  const analysis = round.analysis
+  const fa = analysis?.factory_price_analysis
+  const risk = analysis?.factory_risk_analysis
+  const historical = analysis?.historical_price_reference
+  const target = analysis?.customer_target_price_analysis
+  const factoryOptions = Array.from(new Set(items.map(f => f.factory_name).filter(Boolean) as string[]))
+    .map(name => ({ label: name, value: name }))
   const firstRoundByFactory = new Map(
     firstRound.factory_quotes
       .filter(q => q.factory_name)
@@ -722,6 +745,43 @@ function SecondRoundExcelBlock({ round, firstRound }: { round: JourneyRound; fir
     : round.price_analysis.reason === "no_price"
     ? "暂无有效工厂报价，暂不进行价格比较"
     : "暂无第二轮工厂报价"
+  const saveMutation = useMutation({
+    mutationFn: (values: QuoteItemUpdateBody) => q?.id
+      ? updateQuoteItem(q.id, values)
+      : createFirstRoundQuoteItem(inquiryId, values, { quoteRound: round.quote_round }),
+    onSuccess: async () => {
+      msgApi.success(q?.id ? "已保存第二轮报价参数" : "已创建第二轮报价参数")
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["inquiry-journey"] }),
+        queryClient.invalidateQueries({ queryKey: ["quote-items"] }),
+        queryClient.invalidateQueries({ queryKey: ["factory-quotes"] }),
+        queryClient.invalidateQueries({ queryKey: ["operation-logs"] }),
+      ])
+      onSaved()
+    },
+    onError: (e: Error) => msgApi.error(`保存失败：${e.message}`),
+  })
+  useEffect(() => {
+    form.setFieldsValue({
+      order_quantity: q?.order_quantity ?? null,
+      pieces_per_card: q?.pieces_per_card ?? null,
+      calc_quantity: q?.calc_quantity ?? null,
+      misc_fee_cny: q?.misc_fee_cny ?? null,
+      included_other_fee_cny: q?.included_other_fee_cny ?? null,
+      test_fee_cny: q?.test_fee_cny ?? null,
+      batch_shipment_count: q?.batch_shipment_count ?? null,
+      destination_port_count: q?.destination_port_count ?? null,
+      port_misc_fee_cny: q?.port_misc_fee_cny ?? null,
+      commission_pct: q?.commission_pct ?? null,
+      exchange_rate: q?.exchange_rate ?? null,
+      selected_factory: q?.selected_factory ?? null,
+      selected_factory_price_cny: q?.selected_factory_price_cny ?? null,
+      net_profit_pct: q?.net_profit_pct ?? null,
+      final_quote_usd: q?.final_quote_usd ?? null,
+      current_exchange_rate: q?.current_exchange_rate ?? null,
+      customer_target_price_usd: q?.customer_target_price_usd ?? null,
+    })
+  }, [form, q])
   const border = "1px solid #d9d9d9"
   const cell = (content: ReactNode, opts: { colSpan?: number; header?: boolean; section?: boolean; strong?: boolean; height?: number; align?: "center" | "right" | "left"; muted?: boolean } = {}) => (
     <td colSpan={opts.colSpan} style={{
@@ -738,11 +798,25 @@ function SecondRoundExcelBlock({ round, firstRound }: { round: JourneyRound; fir
       wordBreak: "break-word",
     }}>{content}</td>
   )
+  const input = (name: keyof QuoteItemUpdateBody, precision = 4) => (
+    <Form.Item noStyle name={name}>
+      <InputNumber size="small" controls={false} min={0} precision={precision} style={{ width: "100%" }} />
+    </Form.Item>
+  )
+  const selectedRankText = fa?.selected_factory_rank == null ? "—" : fa.selected_factory_rank === 1 ? "最低" : fa.selected_factory_rank === 2 ? "第二低" : `第${fa.selected_factory_rank}低`
+  const targetFeasible = !target || target.target_has_profit == null ? "—" : target.target_has_profit ? (target.target_gross_profit_rate != null && target.target_gross_profit_rate >= 0.15 ? "有利润空间" : "利润较薄") : "可能亏损"
+  const finalQuoteDiff = q?.final_quote_usd != null && firstRound.quote_item?.final_quote_usd != null ? q.final_quote_usd - firstRound.quote_item.final_quote_usd : null
+  const finalQuoteRatio = q?.final_quote_usd != null && firstRound.quote_item?.final_quote_usd ? (q.final_quote_usd / firstRound.quote_item.final_quote_usd) - 1 : null
+  const targetChangeRatio = q?.customer_target_price_usd != null && firstRound.quote_item?.customer_target_price_usd ? (q.customer_target_price_usd / firstRound.quote_item.customer_target_price_usd) - 1 : null
+
   return (
     <div style={{ marginBottom: 16, background: "#fff" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff", border }}>
-        <colgroup>{Array.from({ length: 10 }).map((_, i) => <col key={i} style={{ width: "10%" }} />)}</colgroup>
-        <tbody>
+      {ctx}
+      {!q && <Alert type="info" showIcon style={{ borderRadius: 0, marginBottom: 8 }} message="当前询单尚未创建第二轮国内报价参数记录，填写后可直接保存创建。" />}
+      <Form form={form} disabled={!canEdit} onFinish={values => saveMutation.mutate(values)}>
+        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff", border }}>
+          <colgroup>{Array.from({ length: 10 }).map((_, i) => <col key={i} style={{ width: "10%" }} />)}</colgroup>
+          <tbody>
           <tr>{cell("第二轮报价", { colSpan: 10, section: true, height: 36 })}</tr>
           <tr>
             {cell("更新内容", { header: true })}
@@ -785,21 +859,26 @@ function SecondRoundExcelBlock({ round, firstRound }: { round: JourneyRound; fir
             {cell("选用工厂风险等级", { colSpan: 2, header: true })}
           </tr>
           <tr>
-            {cell("—", { muted: true })}
-            {cell("—", { muted: true })}
-            {cell("—", { muted: true })}
-            {cell("—", { muted: true })}
-            {cell("—", { colSpan: 2, muted: true })}
-            {cell("—", { muted: true })}
-            {cell("—", { muted: true })}
-            {cell("—", { colSpan: 2, muted: true })}
+            {cell(input("order_quantity", 0))}
+            {cell(input("pieces_per_card", 0))}
+            {cell(input("calc_quantity", 0))}
+            {cell(input("misc_fee_cny"))}
+            {cell(input("included_other_fee_cny"), { colSpan: 2 })}
+            {cell(selectedRankText, { strong: fa?.selected_factory_rank != null })}
+            {cell(ratioPct(fa?.selected_factory_gap_pct), { strong: fa?.selected_factory_gap_pct != null })}
+            {cell(dash(risk?.risk_level), { colSpan: 2, strong: risk?.risk_level === "high" || risk?.risk_level === "blocked" })}
           </tr>
           <tr>
             {["分批走货", "目的港数量", "港杂费", "测试费", "选取工厂", "选取工厂价格"].map(h => cell(h, { header: true }))}
             {cell("历史价格参考区", { colSpan: 4, section: true, height: 36 })}
           </tr>
           <tr>
-            {Array.from({ length: 6 }).map((_, idx) => <Fragment key={`second-empty-history-left-${idx}`}>{cell("—", { muted: true })}</Fragment>)}
+            {cell(input("batch_shipment_count"))}
+            {cell(input("destination_port_count", 0))}
+            {cell(input("port_misc_fee_cny"))}
+            {cell(input("test_fee_cny"))}
+            {cell(<Form.Item noStyle name="selected_factory"><Select size="small" allowClear showSearch options={factoryOptions} placeholder="需要人工确认" /></Form.Item>)}
+            {cell(input("selected_factory_price_cny"))}
             {["类似款式数量", "历史最低价", "历史最高价", "历史平均价格"].map(h => cell(h, { header: true }))}
           </tr>
           <tr>
@@ -810,7 +889,16 @@ function SecondRoundExcelBlock({ round, firstRound }: { round: JourneyRound; fir
             {cell("—", { muted: true })}
           </tr>
           <tr>
-            {Array.from({ length: 10 }).map((_, idx) => <Fragment key={`second-empty-price-${idx}`}>{cell("—", { muted: true })}</Fragment>)}
+            {cell(input("commission_pct", 2))}
+            {cell(input("exchange_rate"))}
+            {cell(input("net_profit_pct", 2))}
+            {cell(input("final_quote_usd"))}
+            {cell(signedMoney(finalQuoteDiff), { strong: finalQuoteDiff != null })}
+            {cell(ratioPct(finalQuoteRatio), { strong: finalQuoteRatio != null })}
+            {cell(historical?.sample_count ?? "—", { strong: !!historical?.sample_count })}
+            {cell(priceWithUnit(historical?.historical_lowest_price, historical?.currency, historical?.price_unit))}
+            {cell(priceWithUnit(historical?.historical_highest_price, historical?.currency, historical?.price_unit))}
+            {cell(priceWithUnit(historical?.historical_average_price, historical?.currency, historical?.price_unit))}
           </tr>
           <tr>
             {cell("当下汇率", { header: true })}
@@ -819,9 +907,9 @@ function SecondRoundExcelBlock({ round, firstRound }: { round: JourneyRound; fir
             {cell("", { colSpan: 4 })}
           </tr>
           <tr>
-            {cell("—", { muted: true })}
-            {cell("—", { colSpan: 2, muted: true })}
-            {cell("—", { colSpan: 3, muted: true })}
+            {cell(input("current_exchange_rate"))}
+            {cell(money(q?.gross_profit_cny), { colSpan: 2, strong: true })}
+            {cell(money(q?.trade_amount_usd), { colSpan: 3, strong: true })}
             {cell("目标价分析", { colSpan: 4, section: true, height: 36 })}
           </tr>
           <tr>
@@ -837,12 +925,25 @@ function SecondRoundExcelBlock({ round, firstRound }: { round: JourneyRound; fir
             {cell("按照达到目标价格的利润值", { header: true })}
           </tr>
           <tr>
-            {Array.from({ length: 6 }).map((_, idx) => <Fragment key={`second-empty-target-${idx}`}>{cell("—", { muted: true })}</Fragment>)}
-            {cell("此处根据目标价、工厂价、费用、佣金和订单量生成分析提示。", { colSpan: 4, align: "left", height: 72 })}
+            {cell(input("customer_target_price_usd"))}
+            {cell(ratioPct(targetChangeRatio), { strong: targetChangeRatio != null })}
+            {cell(money(q?.reverse_target_profit_value))}
+            {cell(money(q?.reverse_target_price_cny), { strong: true })}
+            {cell(money(target?.target_gross_profit_cny ?? q?.target_gross_profit_cny), { strong: true })}
+            {cell(money(target?.target_sales_amount_usd ?? q?.target_trade_amount_usd))}
+            {cell(target?.messages[0]?.message ?? targetFeasible, { align: "left", height: 72 })}
+            {cell(signedMoney(target?.target_vs_current_diff ?? q?.target_price_gap_usd ?? q?.target_gap_cny), { strong: true })}
+            {cell(ratioPct(q?.quote_vs_target_ratio ?? target?.target_vs_current_diff_pct))}
+            {cell(money(q?.target_profit_value))}
           </tr>
           <tr>{cell("AI分析提示区", { colSpan: 10, section: true, height: 40 })}</tr>
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+        <Space style={{ marginTop: 10 }}>
+          <Button type="primary" icon={<SaveOutlined />} htmlType="submit" loading={saveMutation.isPending} disabled={!canEdit}>保存第二轮报价参数</Button>
+          {!canEdit && <Text type="secondary">当前账号只读，不能保存修改。</Text>}
+        </Space>
+      </Form>
     </div>
   )
 }
@@ -969,7 +1070,16 @@ export default function InquiryJourneyPage() {
             ) : (
               otherRounds.map(r => (
                 r.quote_round === 2 && (r.quote_type ?? "domestic") === "domestic"
-                  ? <SecondRoundExcelBlock key={`${r.quote_type}-${r.quote_round}`} round={r} firstRound={first_round} />
+                  ? (
+                    <SecondRoundExcelBlock
+                      key={`${r.quote_type}-${r.quote_round}`}
+                      round={r}
+                      firstRound={first_round}
+                      inquiryId={id!}
+                      canEdit={data.can_edit}
+                      onSaved={() => queryClient.invalidateQueries({ queryKey: ["inquiry-journey", id] })}
+                    />
+                  )
                   : <UnifiedRoundBlock key={`${r.quote_type}-${r.quote_round}`} round={r} />
               ))
             )}
