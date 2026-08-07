@@ -703,6 +703,150 @@ function roundQuotes(round: JourneyRound): JourneyFactoryQuoteBrief[] {
   return [round.factory1, round.factory2, ...round.other_factories].filter((it): it is JourneyFactoryQuoteBrief => Boolean(it))
 }
 
+function factoryNameKey(name: string | null | undefined): string {
+  return (name ?? "").trim().toLowerCase()
+}
+
+function SecondRoundExcelBlock({ round, firstRound }: { round: JourneyRound; firstRound: JourneyFirstRound }) {
+  const items = roundQuotes(round)
+  const firstRoundByFactory = new Map(
+    firstRound.factory_quotes
+      .filter(q => q.factory_name)
+      .map(q => [factoryNameKey(q.factory_name), q]),
+  )
+  const quoteSlots = [...items, ...Array(Math.max(0, 3 - items.length)).fill(null)] as (JourneyFactoryQuoteBrief | null)[]
+  const reason = round.price_analysis.comparable
+    ? null
+    : round.price_analysis.reason === "mismatch"
+    ? "币种或单位不一致，暂不进行价格比较"
+    : round.price_analysis.reason === "no_price"
+    ? "暂无有效工厂报价，暂不进行价格比较"
+    : "暂无第二轮工厂报价"
+  const border = "1px solid #d9d9d9"
+  const cell = (content: ReactNode, opts: { colSpan?: number; header?: boolean; section?: boolean; strong?: boolean; height?: number; align?: "center" | "right" | "left"; muted?: boolean } = {}) => (
+    <td colSpan={opts.colSpan} style={{
+      border,
+      background: opts.section ? C_DARK_BLUE : opts.header ? "#f0f5ff" : "#fff",
+      color: opts.section ? "#fff" : opts.muted ? "#8c8c8c" : undefined,
+      fontWeight: opts.header || opts.strong || opts.section ? 700 : 400,
+      textAlign: opts.align ?? "center",
+      verticalAlign: "middle",
+      height: opts.height ?? 24,
+      padding: opts.section ? "5px 8px" : "3px 5px",
+      fontSize: opts.section ? 13 : 12,
+      lineHeight: 1.18,
+      wordBreak: "break-word",
+    }}>{content}</td>
+  )
+  return (
+    <div style={{ marginBottom: 16, background: "#fff" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff", border }}>
+        <colgroup>{Array.from({ length: 10 }).map((_, i) => <col key={i} style={{ width: "10%" }} />)}</colgroup>
+        <tbody>
+          <tr>{cell("第二轮报价", { colSpan: 10, section: true, height: 36 })}</tr>
+          <tr>
+            {cell("更新内容", { header: true })}
+            {cell("—", { colSpan: 9, align: "left", muted: true })}
+          </tr>
+          <tr>
+            {cell("工厂名称", { header: true })}
+            {quoteSlots.map((it, idx) => <Fragment key={`second-name-${it?.id ?? idx}`}>{cell(dash(it?.factory_name), { colSpan: 3, muted: !it })}</Fragment>)}
+          </tr>
+          <tr>
+            {cell("工厂价格", { header: true })}
+            {quoteSlots.map((it, idx) => <Fragment key={`second-price-${it?.id ?? idx}`}>{cell(priceWithUnit(it?.factory_price, it?.currency, it?.price_unit), { colSpan: 3, align: "right", muted: !it })}</Fragment>)}
+          </tr>
+          <tr>
+            {cell("币种", { header: true })}
+            {quoteSlots.map((it, idx) => <Fragment key={`second-currency-${it?.id ?? idx}`}>{cell(dash(it?.currency), { colSpan: 3, muted: !it })}</Fragment>)}
+          </tr>
+          <tr>
+            {cell("同工厂价格变动比率", { header: true })}
+            {quoteSlots.map((it, idx) => <Fragment key={`second-change-${it?.id ?? idx}`}>{cell(it?.factory_name ? ratioPct((it.factory_price != null && firstRoundByFactory.get(factoryNameKey(it.factory_name))?.factory_price ? it.factory_price / firstRoundByFactory.get(factoryNameKey(it.factory_name))!.factory_price! - 1 : null)) : "—", { colSpan: 3, strong: !!it })}</Fragment>)}
+          </tr>
+          <tr>
+            {cell("各个工厂价格比对情况", { header: true })}
+            {quoteSlots.map((it, idx) => <Fragment key={`second-rank-${it?.id ?? idx}`}>{cell(it ? quoteRankTag(quoteRankLabel(it, round.price_analysis)) : quoteRankTag("—"), { colSpan: 3, muted: !it })}</Fragment>)}
+          </tr>
+          <tr>
+            {cell("各个工厂价格相差比率", { header: true })}
+            {quoteSlots.map((it, idx) => <Fragment key={`second-gap-${it?.id ?? idx}`}>{cell(it ? quoteGapRatio(it, round.price_analysis) : "—", { colSpan: 3, muted: !it })}</Fragment>)}
+          </tr>
+          {reason && <tr>{cell(reason, { colSpan: 10, muted: true })}</tr>}
+          <tr>
+            {cell("价格计算", { colSpan: 6, section: true, height: 36 })}
+            {cell("工厂辅助判断区", { colSpan: 4, section: true, height: 36 })}
+          </tr>
+          <tr>
+            {["订单数量", "每卡件数", "算价格数量", "杂费"].map(h => cell(h, { header: true }))}
+            {cell("包含验货，验厂，海运/空运费其他费用", { colSpan: 2, header: true })}
+            {cell("选用工厂价位情况", { header: true })}
+            {cell("选用工厂同最低工厂百分比", { header: true })}
+            {cell("选用工厂风险等级", { colSpan: 2, header: true })}
+          </tr>
+          <tr>
+            {cell("—", { muted: true })}
+            {cell("—", { muted: true })}
+            {cell("—", { muted: true })}
+            {cell("—", { muted: true })}
+            {cell("—", { colSpan: 2, muted: true })}
+            {cell("—", { muted: true })}
+            {cell("—", { muted: true })}
+            {cell("—", { colSpan: 2, muted: true })}
+          </tr>
+          <tr>
+            {["分批走货", "目的港数量", "港杂费", "测试费", "选取工厂", "选取工厂价格"].map(h => cell(h, { header: true }))}
+            {cell("历史价格参考区", { colSpan: 4, section: true, height: 36 })}
+          </tr>
+          <tr>
+            {Array.from({ length: 6 }).map((_, idx) => <Fragment key={`second-empty-history-left-${idx}`}>{cell("—", { muted: true })}</Fragment>)}
+            {["类似款式数量", "历史最低价", "历史最高价", "历史平均价格"].map(h => cell(h, { header: true }))}
+          </tr>
+          <tr>
+            {["佣金", "报价汇率", "净利润值", "客人价格", "比上次给客人报价差值", "比上次给客人报价比率"].map(h => cell(h, { header: true }))}
+            {cell("—", { muted: true })}
+            {cell("—", { muted: true })}
+            {cell("—", { muted: true })}
+            {cell("—", { muted: true })}
+          </tr>
+          <tr>
+            {Array.from({ length: 10 }).map((_, idx) => <Fragment key={`second-empty-price-${idx}`}>{cell("—", { muted: true })}</Fragment>)}
+          </tr>
+          <tr>
+            {cell("当下汇率", { header: true })}
+            {cell("毛利润额（人民币）", { colSpan: 2, header: true })}
+            {cell("贸易额（美金）", { colSpan: 3, header: true })}
+            {cell("", { colSpan: 4 })}
+          </tr>
+          <tr>
+            {cell("—", { muted: true })}
+            {cell("—", { colSpan: 2, muted: true })}
+            {cell("—", { colSpan: 3, muted: true })}
+            {cell("目标价分析", { colSpan: 4, section: true, height: 36 })}
+          </tr>
+          <tr>
+            {cell("目标价", { header: true })}
+            {cell("目标价格变动比率", { header: true })}
+            {cell("倒推给工厂目标价格时利润值", { header: true })}
+            {cell("倒推给工厂的目标价格", { header: true })}
+            {cell("达到目标价格毛利润额", { header: true })}
+            {cell("达到目标价格贸易额", { header: true })}
+            {cell("目标价格是否合理", { header: true })}
+            {cell("达到目标价格要降的钱数", { header: true })}
+            {cell("给客人报的价格和目标价比例", { header: true })}
+            {cell("按照达到目标价格的利润值", { header: true })}
+          </tr>
+          <tr>
+            {Array.from({ length: 6 }).map((_, idx) => <Fragment key={`second-empty-target-${idx}`}>{cell("—", { muted: true })}</Fragment>)}
+            {cell("此处根据目标价、工厂价、费用、佣金和订单量生成分析提示。", { colSpan: 4, align: "left", height: 72 })}
+          </tr>
+          <tr>{cell("AI分析提示区", { colSpan: 10, section: true, height: 40 })}</tr>
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function UnifiedRoundBlock({ round }: { round: JourneyRound }) {
   const title = roundTitle(round)
   const items = roundQuotes(round)
@@ -823,7 +967,11 @@ export default function InquiryJourneyPage() {
                 </Button>
               </div>
             ) : (
-              otherRounds.map(r => <UnifiedRoundBlock key={`${r.quote_type}-${r.quote_round}`} round={r} />)
+              otherRounds.map(r => (
+                r.quote_round === 2 && (r.quote_type ?? "domestic") === "domestic"
+                  ? <SecondRoundExcelBlock key={`${r.quote_type}-${r.quote_round}`} round={r} firstRound={first_round} />
+                  : <UnifiedRoundBlock key={`${r.quote_type}-${r.quote_round}`} round={r} />
+              ))
             )}
           </div>
 
