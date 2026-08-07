@@ -774,7 +774,7 @@ function SecondRoundExcelBlock({
       net_profit_pct: source?.net_profit_pct ?? null,
       final_quote_usd: q?.final_quote_usd ?? null,
       current_exchange_rate: source?.current_exchange_rate ?? null,
-      customer_target_price_usd: source?.customer_target_price_usd ?? null,
+      customer_target_price_usd: q?.customer_target_price_usd ?? null,
     })
   }, [base, form, q])
   const border = "1px solid #d9d9d9"
