@@ -464,10 +464,6 @@ function FirstRoundExcelSheet({
           <tbody>
             <tr>{cell("第一轮报价", { colSpan: 10, section: true, height: 36 })}</tr>
             <tr>
-              {quoteCell("工厂 1 / 3 / 5 ...", { header: true, colSpan: 5 })}
-              {quoteCell("工厂 2 / 4 / 6 ...", { header: true, colSpan: 5 })}
-            </tr>
-            <tr>
               {["报价日期", "工厂名称", "工厂价格", "比对情况", "相差比率"].map(h => quoteCell(h, { header: true }))}
               {["报价日期", "工厂名称", "工厂价格", "比对情况", "相差比率"].map(h => quoteCell(h, { header: true }))}
             </tr>
@@ -488,7 +484,7 @@ function FirstRoundExcelSheet({
             <tr>{cell("", { colSpan: 10, height: 18 })}</tr>
             <tr>
               {cell("价格计算", { colSpan: 5, section: true, color: C_DARK_BLUE, height: 36 })}
-              {cell("工厂辅助判断区", { colSpan: 5, section: true, color: C_GREEN, height: 36 })}
+              {cell("工厂辅助判断区", { colSpan: 5, section: true, color: C_DARK_BLUE, height: 36 })}
             </tr>
             <tr>
               {["订单数量", "每卡件数", "算价格数量", "杂费", "包含验货，验厂，海运/空运费（客人要求我们报价需要包含运费的情况）其他费用"].map(h => cell(h, { height: 54 }))}
@@ -508,7 +504,7 @@ function FirstRoundExcelSheet({
             </tr>
             <tr>
               {["测试费", "分批走货", "目的港数量", "港杂费", "佣金"].map(h => cell(h))}
-              {cell("历史价格参考区", { colSpan: 5, section: true, color: C_LIGHT_BLUE })}
+              {cell("历史价格参考区", { colSpan: 5, section: true, color: C_DARK_BLUE })}
             </tr>
             <tr>
               {cell(input("test_fee_cny"))}
