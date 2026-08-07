@@ -364,7 +364,7 @@ function FirstRoundExcelSheet({
   const [form] = Form.useForm()
   const [msgApi, ctx] = message.useMessage()
   const queryClient = useQueryClient()
-  const [showSamples, setShowSamples] = useState(false)
+  const [showSamples, setShowSamples] = useState(true)
   const q = firstRound.quote_item
   const fa = analysis.factory_price_analysis
   const risk = analysis.factory_risk_analysis
@@ -434,158 +434,247 @@ function FirstRoundExcelSheet({
       <InputNumber size="small" controls={false} min={0} precision={precision} style={{ width: "100%" }} />
     </Form.Item>
   )
-  const selectedRankText = fa.selected_factory_rank == null ? "—" : fa.selected_factory_rank === 1 ? "最低" : fa.selected_factory_rank === 2 ? "第二低" : `第${fa.selected_factory_rank}低`
   const targetFeasible = target.target_has_profit == null ? "—" : target.target_has_profit ? (target.target_gross_profit_rate != null && target.target_gross_profit_rate >= 0.15 ? "有利润空间" : "利润较薄") : "可能亏损"
   const displayQuoteRows = [...firstRound.factory_quotes, ...Array(Math.max(0, 3 - firstRound.factory_quotes.length)).fill(null)] as (JourneyFactoryQuoteBrief | null)[]
   const factoryMessages = analysis.analysis_messages.filter(m => ["最低报价差距较大", "最低报价差距明显", "最低报价工厂风险记录", "最低报价工厂限制合作", "工厂问题备注", "建议关注第二低报价工厂"].includes(m.title))
   const reason = analysisReason(fa)
+  const targetDiff = target.target_vs_current_diff ?? q?.target_price_gap_usd ?? q?.target_gap_cny
+  const targetRatio = q?.quote_vs_target_ratio ?? target.target_vs_current_diff_pct
+  const targetAlert = target.messages[0]
 
   return (
     <div>
       {ctx}
       {!q && <Alert type="info" showIcon style={{ borderRadius: 0, marginBottom: 8 }} message="当前询单尚未创建第一轮国内报价参数记录，填写后可直接保存创建。" />}
       <Form form={form} disabled={!canEdit} onFinish={values => saveMutation.mutate(values)}>
-        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff", border: "1px solid #d9d9d9" }}>
-          <colgroup>{Array.from({ length: 10 }).map((_, i) => <col key={i} style={{ width: "10%" }} />)}</colgroup>
-          <tbody>
-            <tr>{cell("第一轮报价", { colSpan: 10, section: true, height: 36 })}</tr>
-            <tr>
-              {quoteCell("安排报价日期", { header: true })}
-              {quoteCell("工厂报价日期", { header: true })}
-              {quoteCell("工厂名称", { header: true, colSpan: 2 })}
-              {quoteCell("工厂价格（/件）", { header: true })}
-              {quoteCell("币种", { header: true })}
-              {quoteCell("价格比对情况", { header: true, colSpan: 2 })}
-              {quoteCell("价格相差比率", { header: true, colSpan: 2 })}
-            </tr>
-            {displayQuoteRows.map((it, idx) => (
-              <tr key={it?.id ?? `empty-${idx}`}>
-                {quoteCell("—", { muted: !it })}
-                {quoteCell(it ? dateText(it.quoted_at ?? it.created_at) : "—", { muted: !it })}
-                {quoteCell(dash(it?.factory_name), { colSpan: 2, muted: !it })}
-                {quoteCell(money(it?.factory_price), { align: "right", muted: !it })}
-                {quoteCell(dash(it?.currency), { muted: !it })}
-                {quoteCell(it ? quoteRankTag(quoteRankLabel(it, fa)) : quoteRankTag("—"), { colSpan: 2, muted: !it })}
-                {quoteCell(it ? quoteGapRatio(it, fa) : "—", { colSpan: 2, muted: !it })}
-              </tr>
-            ))}
-            {reason && <tr>{cell(reason, { colSpan: 10, muted: true })}</tr>}
-            <tr>{cell("", { colSpan: 10, height: 18 })}</tr>
-            <tr>
-              {cell("价格计算", { colSpan: 5, section: true, color: C_DARK_BLUE, height: 36 })}
-              {cell("工厂辅助判断区", { colSpan: 5, section: true, color: C_GREEN, height: 36 })}
-            </tr>
-            <tr>
-              {["订单数量", "每卡件数", "算价格数量", "杂费", "包含验货，验厂，海运/空运费（客人要求我们报价需要包含运费的情况）其他费用"].map(h => cell(h, { height: 54 }))}
-              {cell("选用工厂价位情况", { height: 54 })}
-              {cell("选用工厂同最低工厂百分比", { height: 54 })}
-              {cell("选用工厂风险等级", { colSpan: 3, height: 54 })}
-            </tr>
-            <tr>
-              {cell(input("order_quantity", 0))}
-              {cell(input("pieces_per_card", 0))}
-              {cell(input("calc_quantity", 0))}
-              {cell(input("misc_fee_cny"))}
-              {cell(input("included_other_fee_cny"))}
-              {cell(selectedRankText, { strong: fa.selected_factory_rank != null })}
-              {cell(ratioPct(fa.selected_factory_gap_pct), { strong: fa.selected_factory_gap_pct != null })}
-              {cell(dash(risk.risk_level), { colSpan: 3, strong: risk.risk_level === "high" || risk.risk_level === "blocked" })}
-            </tr>
-            <tr>
-              {["测试费", "分批走货", "目的港数量", "港杂费", "佣金"].map(h => cell(h))}
-              {cell("历史价格参考区", { colSpan: 5, section: true, color: C_LIGHT_BLUE })}
-            </tr>
-            <tr>
-              {cell(input("test_fee_cny"))}
-              {cell(input("batch_shipment_count"))}
-              {cell(input("destination_port_count", 0))}
-              {cell(input("port_misc_fee_cny"))}
-              {cell(input("commission_pct", 2))}
-              {cell("类似款式数量")}
-              {cell("历史最低价")}
-              {cell("历史最高价")}
-              {cell("历史平均价格", { colSpan: 2 })}
-            </tr>
-            <tr>
-              {["报价汇率", "选取工厂", "选取工厂价格", "净利润值", "客人价格"].map(h => cell(h))}
-              {cell(historical.samples.length > 0 ? <Button type="link" size="small" onClick={() => setShowSamples(v => !v)}>{historical.sample_count}</Button> : historical.sample_count, { strong: historical.sample_count > 0 })}
-              {cell(priceWithUnit(historical.historical_lowest_price, historical.currency, historical.price_unit))}
-              {cell(priceWithUnit(historical.historical_highest_price, historical.currency, historical.price_unit))}
-              {cell(priceWithUnit(historical.historical_average_price, historical.currency, historical.price_unit), { colSpan: 2 })}
-            </tr>
-            <tr>
-              {cell(input("exchange_rate"))}
-              {cell(<Form.Item noStyle name="selected_factory"><Select size="small" allowClear showSearch options={factoryOptions} placeholder="需要人工确认" /></Form.Item>)}
-              {cell(input("selected_factory_price_cny"))}
-              {cell(input("net_profit_pct", 2))}
-              {cell(input("final_quote_usd"))}
-              {cell("", { colSpan: 5 })}
-            </tr>
-            <tr>
-              {cell("当下汇率")}
-              {cell("毛利润额（人民币）", { colSpan: 2 })}
-              {cell("贸易额（美金）", { colSpan: 2 })}
-              {cell("", { colSpan: 5 })}
-            </tr>
-            <tr>
-              {cell(input("current_exchange_rate"))}
-              {cell(money(q?.gross_profit_cny), { colSpan: 2, strong: true })}
-              {cell(money(q?.trade_amount_usd), { colSpan: 2, strong: true })}
-              {cell("最低工厂问题备注")}
-              {cell(dash(risk.risk_notes), { colSpan: 4, align: "left" })}
-            </tr>
-            <tr>{cell("目标价分析", { colSpan: 10, section: true, color: C_DARK_BLUE, height: 36 })}</tr>
-            <tr>
-              {["目标价", "倒推给工厂目标价格时利润值", "倒推给工厂的目标价格", "达到目标价格毛利润额", "达到目标价格贸易额", "目标价格是否合理", "达到目标价格要降的钱数", "给客人报的价格和目标价比例", "按照达到目标价格的利润值"].map(h => cell(h, { header: true, height: 58 }))}
-              {cell("")}
-            </tr>
-            <tr>
-              {cell(input("customer_target_price_usd"))}
-              {cell(money(q?.reverse_target_profit_value))}
-              {cell(money(q?.reverse_target_price_cny), { strong: true })}
-              {cell(money(target.target_gross_profit_cny ?? q?.target_gross_profit_cny), { strong: true })}
-              {cell(money(target.target_sales_amount_usd ?? q?.target_trade_amount_usd))}
-              {cell(targetFeasible, { strong: true })}
-              {cell(signedMoney(target.target_vs_current_diff ?? q?.target_price_gap_usd ?? q?.target_gap_cny), { strong: true })}
-              {cell(ratioPct(q?.quote_vs_target_ratio ?? target.target_vs_current_diff_pct))}
-              {cell(money(q?.target_profit_value))}
-              {cell("")}
-            </tr>
-            <tr>
-              {cell("", { colSpan: 5, height: 72 })}
-              {cell(target.messages[0]?.message ?? "此处根据目标价、工厂价、费用、佣金和订单量生成分析提示。", { colSpan: 5, align: "left", height: 72 })}
-            </tr>
-            <tr>{cell("AI分析提示区", { colSpan: 10, section: true, color: C_DARK_BLUE, height: 40 })}</tr>
-          </tbody>
-        </table>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 12, alignItems: "start" }}>
+          <div style={{ minWidth: 0 }}>
+            <SectionTitle label="客人目标价可行性分析区" color="#f47721" />
+            <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff", border }}>
+              <tbody>
+                <tr>
+                  {cell("客人目标价", { header: true })}
+                  {cell("当前给客人报的价格", { header: true })}
+                  {cell("目标价 vs 当前报价差额", { header: true })}
+                  {cell("目标价 vs 当前报价差百分比", { header: true })}
+                  {cell("达到目标价所需降价百分比", { header: true })}
+                </tr>
+                <tr>
+                  {cell(money(q?.customer_target_price_usd ?? target.customer_target_price_usd), { strong: true })}
+                  {cell(money(q?.final_quote_usd ?? target.final_quote_usd))}
+                  {cell(signedMoney(targetDiff), { strong: targetDiff != null })}
+                  {cell(ratioPct(targetRatio), { strong: targetRatio != null })}
+                  {cell(ratioPct(target.required_discount_pct), { strong: target.required_discount_pct != null })}
+                </tr>
+                <tr>
+                  {cell("按目标价预计销售额", { header: true })}
+                  {cell("按目标价预计毛利润", { header: true })}
+                  {cell("按目标价预计毛利率", { header: true })}
+                  {cell("目标价下是否仍有利润", { header: true })}
+                  {cell("缺少关键字段", { header: true })}
+                </tr>
+                <tr>
+                  {cell(money(target.target_sales_amount_usd ?? q?.target_trade_amount_usd))}
+                  {cell(money(target.target_gross_profit_cny ?? q?.target_gross_profit_cny), { strong: true })}
+                  {cell(ratioPct(target.target_gross_profit_rate), { strong: target.target_gross_profit_rate != null })}
+                  {cell(targetFeasible, { strong: true })}
+                  {cell(target.missing_fields.length ? target.missing_fields.join("、") : "—")}
+                </tr>
+              </tbody>
+            </table>
+            <Alert
+              type={alertType(targetAlert?.level)}
+              showIcon
+              style={{ marginTop: 8, marginBottom: 0, borderRadius: 4 }}
+              message={targetAlert?.title ?? "目标价分析提示"}
+              description={targetAlert?.message ?? "此处根据目标价、工厂价、费用、佣金和订单量生成分析提示。"}
+            />
+
+            <div style={{ marginTop: 0 }}>
+              <SectionTitle label="第一轮报价计算区" color="#f47721" />
+              <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff", border }}>
+                <tbody>
+                  <tr>
+                    {["订单数量", "算价格数量", "分批走货情况"].map(h => cell(h, { header: false }))}
+                  </tr>
+                  <tr>
+                    {cell(input("order_quantity", 0))}
+                    {cell(input("calc_quantity", 0))}
+                    {cell(input("batch_shipment_count"))}
+                  </tr>
+                  <tr>
+                    {["港杂费", "测试费", "杂费"].map(h => cell(h))}
+                  </tr>
+                  <tr>
+                    {cell(input("port_misc_fee_cny"))}
+                    {cell(input("test_fee_cny"))}
+                    {cell(input("misc_fee_cny"))}
+                  </tr>
+                  <tr>
+                    {["报价汇率", "净利润值", "佣金"].map(h => cell(h))}
+                  </tr>
+                  <tr>
+                    {cell(input("exchange_rate"))}
+                    {cell(input("net_profit_pct", 2))}
+                    {cell(input("commission_pct", 2))}
+                  </tr>
+                  <tr>
+                    {["选用工厂价格", "给客人报的价格", "当下汇率"].map(h => cell(h))}
+                  </tr>
+                  <tr>
+                    {cell(input("selected_factory_price_cny"))}
+                    {cell(input("final_quote_usd"))}
+                    {cell(input("current_exchange_rate"))}
+                  </tr>
+                  <tr>
+                    {cell("客人目标价格")}
+                    {cell("选用工厂名字", { colSpan: 2 })}
+                  </tr>
+                  <tr>
+                    {cell(input("customer_target_price_usd"))}
+                    {cell(<Form.Item noStyle name="selected_factory"><Select size="small" allowClear showSearch options={factoryOptions} placeholder="需要人工确认" /></Form.Item>, { colSpan: 2 })}
+                  </tr>
+                  <tr>
+                    {cell("毛利润额（人民币）", { header: true })}
+                    {cell("贸易额（美金）", { header: true })}
+                    {cell("给客人报的价格和目标价比例", { header: true })}
+                    {cell("按照达到目标价的利润值", { header: true })}
+                    {cell("倒推给工厂的目标价格", { header: true })}
+                    {cell("倒推给工厂的目标价格利润值", { header: true })}
+                  </tr>
+                  <tr>
+                    {cell(money(q?.gross_profit_cny), { strong: true })}
+                    {cell(money(q?.trade_amount_usd), { strong: true })}
+                    {cell(ratioPct(targetRatio))}
+                    {cell(money(q?.target_profit_value))}
+                    {cell(money(q?.reverse_target_price_cny), { strong: true })}
+                    {cell(money(q?.reverse_target_profit_value))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style={{ minWidth: 0 }}>
+            <SectionTitle label="工厂选择辅助判断区" color={C_GREEN} />
+            <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff", border }}>
+              <tbody>
+                <tr>
+                  {cell("选用工厂是否最低价", { header: true })}
+                  {cell("选用工厂比最低价高多少", { header: true })}
+                  {cell("选用工厂比最低价高百分比", { header: true })}
+                  {cell("最低工厂风险等级", { header: true })}
+                  {cell("最低工厂问题备注", { header: true })}
+                  {cell("建议关注工厂", { header: true })}
+                  {cell("需要人工确认", { header: true })}
+                </tr>
+                <tr>
+                  {cell(fa.selected_factory_is_lowest == null ? "—" : fa.selected_factory_is_lowest ? "是" : "否", { strong: fa.selected_factory_is_lowest === true })}
+                  {cell(priceWithUnit(fa.selected_factory_gap_amount, fa.currency, fa.price_unit))}
+                  {cell(ratioPct(fa.selected_factory_gap_pct), { strong: fa.selected_factory_gap_pct != null })}
+                  {cell(dash(risk.risk_level), { strong: risk.risk_level === "high" || risk.risk_level === "blocked" })}
+                  {cell(dash(risk.risk_notes))}
+                  {cell(advice.attention_factory_names.length ? advice.attention_factory_names.join("、") : "—")}
+                  {cell(advice.triggered ? "是" : "—", { strong: advice.triggered })}
+                </tr>
+              </tbody>
+            </table>
+
+            <div style={{ marginTop: 10 }}>
+              <SectionTitle label="历史价格参考区" color={C_LIGHT_BLUE} />
+              <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff", border }}>
+                <tbody>
+                  <tr>
+                    {cell("匹配规则", { header: true })}
+                    {cell("历史样本数量", { header: true })}
+                    {cell("历史最低价", { header: true })}
+                    {cell("历史最高价", { header: true })}
+                    {cell("历史平均价", { header: true })}
+                    {cell("历史中位数价", { header: true })}
+                  </tr>
+                  <tr>
+                    {cell(dash(historical.match_rule))}
+                    {cell(historical.samples.length > 0 ? <Button type="link" size="small" onClick={() => setShowSamples(v => !v)}>{historical.sample_count}</Button> : historical.sample_count, { strong: historical.sample_count > 0 })}
+                    {cell(priceWithUnit(historical.historical_lowest_price, historical.currency, historical.price_unit))}
+                    {cell(priceWithUnit(historical.historical_highest_price, historical.currency, historical.price_unit))}
+                    {cell(priceWithUnit(historical.historical_average_price, historical.currency, historical.price_unit))}
+                    {cell(priceWithUnit(historical.historical_median_price, historical.currency, historical.price_unit))}
+                  </tr>
+                  <tr>
+                    {cell("常规价格区间 P25", { header: true, colSpan: 2 })}
+                    {cell("常规价格区间 P75", { header: true, colSpan: 2 })}
+                    {cell("当前最低价低于历史区间", { header: true })}
+                    {cell("当前选用工厂价高于历史区间", { header: true })}
+                  </tr>
+                  <tr>
+                    {cell(priceWithUnit(historical.normal_price_range_low, historical.currency, historical.price_unit), { colSpan: 2, strong: true })}
+                    {cell(priceWithUnit(historical.normal_price_range_high, historical.currency, historical.price_unit), { colSpan: 2, strong: true })}
+                    {cell(historical.current_lowest_below_range == null ? "—" : historical.current_lowest_below_range ? "是" : "否")}
+                    {cell(historical.selected_price_above_range == null ? "—" : historical.selected_price_above_range ? "是" : "否")}
+                  </tr>
+                </tbody>
+              </table>
+              {showSamples && historical.samples.length > 0 && (
+                <div style={{ border: "1px solid #d9d9d9", borderTop: 0, padding: 8, background: "#fff" }}>
+                  <Text type="secondary" style={{ display: "block", marginBottom: 6 }}>历史样本明细</Text>
+                  <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 12 }}>
+                    <tbody>
+                      <tr>{["询单号", "客户", "品类", "品名", "系列", "工厂", "价格", "询单日期", "订单状态"].map(h => cell(h, { header: true }))}</tr>
+                      {historical.samples.slice(0, 8).map(s => (
+                        <tr key={`${s.inquiry_id}-${s.factory_name}-${s.factory_price}`}>
+                          {cell(dash(s.inquiry_no))}
+                          {cell(dash(s.customer_short_name ?? s.customer_code))}
+                          {cell(dash(s.product_category))}
+                          {cell(dash(s.product_name))}
+                          {cell(dash(s.series_name))}
+                          {cell(dash(s.factory_name))}
+                          {cell(priceWithUnit(s.factory_price, s.currency, s.price_unit))}
+                          {cell(dateText(s.inquiry_date))}
+                          {cell(dash(s.order_status))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              <SectionTitle label="第一轮报价记录" color={C_DARK_BLUE} />
+              <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", background: "#fff", border }}>
+                <tbody>
+                  <tr>
+                    {quoteCell("安排报价日期", { header: true })}
+                    {quoteCell("工厂报价日期", { header: true })}
+                    {quoteCell("工厂名称", { header: true })}
+                    {quoteCell("工厂价格（/件）", { header: true })}
+                    {quoteCell("币种", { header: true })}
+                    {quoteCell("价格比对情况", { header: true })}
+                    {quoteCell("价格相差比率", { header: true })}
+                  </tr>
+                  {displayQuoteRows.map((it, idx) => (
+                    <tr key={it?.id ?? `empty-${idx}`}>
+                      {quoteCell("—", { muted: !it })}
+                      {quoteCell(it ? dateText(it.quoted_at ?? it.created_at) : "—", { muted: !it })}
+                      {quoteCell(dash(it?.factory_name), { muted: !it })}
+                      {quoteCell(money(it?.factory_price), { align: "right", muted: !it })}
+                      {quoteCell(dash(it?.currency), { muted: !it })}
+                      {quoteCell(it ? quoteRankTag(quoteRankLabel(it, fa)) : quoteRankTag("—"), { muted: !it })}
+                      {quoteCell(it ? quoteGapRatio(it, fa) : "—", { muted: !it })}
+                    </tr>
+                  ))}
+                  {reason && <tr>{cell(reason, { colSpan: 7, muted: true })}</tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
         <Space style={{ marginTop: 10 }}>
           <Button icon={<CalculatorOutlined />} onClick={onRecalculate} loading={recalculating}>重新计算</Button>
           <Button type="primary" icon={<SaveOutlined />} htmlType="submit" loading={saveMutation.isPending} disabled={!canEdit}>保存报价参数</Button>
           {!canEdit && <Text type="secondary">当前账号只读，不能保存修改。</Text>}
         </Space>
       </Form>
-      {showSamples && historical.samples.length > 0 && (
-        <div style={{ marginTop: 8, border: "1px solid #d9d9d9", padding: 8, background: "#fff" }}>
-          <Text type="secondary" style={{ display: "block", marginBottom: 6 }}>历史样本明细</Text>
-          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 12 }}>
-            <tbody>
-              <tr>{["客人代码", "询单号", "品类", "品名", "数量", "工厂", "价格", "订单状态"].map(h => cell(h, { header: true }))}</tr>
-              {historical.samples.slice(0, 8).map(s => (
-                <tr key={`${s.inquiry_id}-${s.factory_name}-${s.factory_price}`}>
-                  {cell(dash(s.customer_code))}
-                  {cell(dash(s.inquiry_no))}
-                  {cell(dash(s.product_category))}
-                  {cell(dash(s.product_name))}
-                  {cell("—")}
-                  {cell(dash(s.factory_name))}
-                  {cell(priceWithUnit(s.factory_price, s.currency, s.price_unit))}
-                  {cell(dash(s.order_status))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
       <AnalysisAlerts messages={[...factoryMessages, ...target.messages]} />
       {advice?.triggered && <AnalysisAlerts messages={advice.messages} />}
       <AiAnalysisHints analysis={analysis} />
