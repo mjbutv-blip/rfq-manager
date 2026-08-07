@@ -6,7 +6,7 @@
  * 重复保存任何报价数据——每次都是从后端实时计算后展示。
  */
 
-import { Fragment, useEffect, useState, type ReactNode } from "react"
+import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Alert, Button, Form, InputNumber, Select, Space, Spin, Tag, Typography, message } from "antd"
@@ -30,6 +30,13 @@ const C_DARK_BLUE = "#1f3864"
 const C_GREEN = "#70ad47"
 const C_LIGHT_BLUE = "#bdd7ee"
 const C_LABEL_BG = "#dce6f1"
+const JOURNEY_SCALE_KEY = "rfq_inquiry_journey_scale"
+const JOURNEY_SCALE_OPTIONS = [
+  { label: "100%", value: 1 },
+  { label: "90%", value: 0.9 },
+  { label: "80%", value: 0.8 },
+  { label: "70%", value: 0.7 },
+]
 
 function dash(v: string | number | null | undefined): string {
   return v == null || v === "" ? "—" : String(v)
@@ -817,6 +824,10 @@ export default function InquiryJourneyPage() {
   const queryClient = useQueryClient()
   const [msgApi, ctx] = message.useMessage()
   const [analysisOverride, setAnalysisOverride] = useState<JourneyFirstRoundAnalysisBundle | null>(null)
+  const [pageScale, setPageScale] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(JOURNEY_SCALE_KEY))
+    return JOURNEY_SCALE_OPTIONS.some(opt => opt.value === saved) ? saved : 1
+  })
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["inquiry-journey", id],
@@ -852,15 +863,29 @@ export default function InquiryJourneyPage() {
   const { inquiry, first_round, rounds } = data
   const firstRoundAnalysis = analysisOverride ?? first_round.analysis
   const otherRounds = rounds.filter(r => !(r.quote_round === 1 && (r.quote_type ?? "domestic") === "domestic"))
+  const scaledContentStyle = { zoom: pageScale } as CSSProperties
 
   return (
-    <div style={{ padding: 24, maxWidth: 1400 }}>
+    <div style={{ padding: 24, maxWidth: "none" }}>
       {ctx}
-      <Space style={{ marginBottom: 12 }}>
+      <Space style={{ marginBottom: 12, display: "flex", justifyContent: "space-between" }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(`/inquiry/${id}`)}>返回询单详情</Button>
+        <Space size={8}>
+          <Text type="secondary">页面比例</Text>
+          <Select
+            size="small"
+            value={pageScale}
+            options={JOURNEY_SCALE_OPTIONS}
+            style={{ width: 92 }}
+            onChange={value => {
+              setPageScale(value)
+              localStorage.setItem(JOURNEY_SCALE_KEY, String(value))
+            }}
+          />
+        </Space>
       </Space>
 
-      <div>
+      <div style={scaledContentStyle}>
         <div>
           <JourneyTopSummary inquiry={inquiry} firstRound={first_round} />
 
