@@ -880,10 +880,10 @@ function SecondRoundExcelBlock({
           </tr>
           <tr>
             {["佣金", "报价汇率", "净利润值", "客人价格", "比上次给客人报价差值", "比上次给客人报价比率"].map(h => cell(h, { header: true }))}
-            {cell("—", { muted: true })}
-            {cell("—", { muted: true })}
-            {cell("—", { muted: true })}
-            {cell("—", { muted: true })}
+            {cell(historical?.sample_count ?? "—", { strong: !!historical?.sample_count })}
+            {cell(priceWithUnit(historical?.historical_lowest_price, historical?.currency, historical?.price_unit))}
+            {cell(priceWithUnit(historical?.historical_highest_price, historical?.currency, historical?.price_unit))}
+            {cell(priceWithUnit(historical?.historical_average_price, historical?.currency, historical?.price_unit))}
           </tr>
           <tr>
             {cell(input("commission_pct", 2))}
@@ -892,10 +892,7 @@ function SecondRoundExcelBlock({
             {cell(input("final_quote_usd"))}
             {cell(signedMoney(finalQuoteDiff), { strong: finalQuoteDiff != null })}
             {cell(ratioPct(finalQuoteRatio), { strong: finalQuoteRatio != null })}
-            {cell(historical?.sample_count ?? "—", { strong: !!historical?.sample_count })}
-            {cell(priceWithUnit(historical?.historical_lowest_price, historical?.currency, historical?.price_unit))}
-            {cell(priceWithUnit(historical?.historical_highest_price, historical?.currency, historical?.price_unit))}
-            {cell(priceWithUnit(historical?.historical_average_price, historical?.currency, historical?.price_unit))}
+            {cell("", { colSpan: 4 })}
           </tr>
           <tr>
             {cell("当下汇率", { header: true })}
