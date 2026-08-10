@@ -29,7 +29,7 @@ export function setCurrentUsername(username: string): void {
 
 // ── Axios client ──────────────────────────────────────────────────────────────
 
-const rawApiUrl = import.meta.env.VITE_API_URL ?? ""
+const rawApiUrl = (import.meta.env.VITE_API_URL ?? "").trim()
 const apiBaseUrl = import.meta.env.PROD && /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/.test(rawApiUrl)
   ? "https://rfq-manager-production.up.railway.app"
   : rawApiUrl
