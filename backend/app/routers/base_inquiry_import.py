@@ -83,8 +83,8 @@ async def confirm(
     _validate(file)
     file_bytes = await file.read()
     try:
-        group_keys = json.loads(confirmed_order_group_keys) if confirmed_order_group_keys else []
-        if not isinstance(group_keys, list):
+        group_keys = json.loads(confirmed_order_group_keys) if confirmed_order_group_keys else None
+        if group_keys is not None and not isinstance(group_keys, list):
             raise ValueError("confirmed_order_group_keys 必须是数组")
         result = await confirm_base_inquiry_import(
             db,
@@ -92,7 +92,7 @@ async def confirm(
             file.filename or "unknown.xlsx",
             user,
             uniform_customer_code,
-            [str(k) for k in group_keys],
+            [str(k) for k in group_keys] if group_keys is not None else None,
         )
         await db.commit()
     except Exception as exc:
