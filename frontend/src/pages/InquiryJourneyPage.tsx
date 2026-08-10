@@ -687,6 +687,8 @@ function StyleItemsDrawer({
     { title: "产品大类", dataIndex: "product_category", width: 90, render: (v: string | null) => dash(v) },
     { title: "系列", dataIndex: "series_name", width: 120, render: (v: string | null) => dash(v) },
     { title: "数量", dataIndex: "quantity", width: 90, align: "right" as const, render: (v: number | null) => v == null ? "—" : v.toLocaleString() },
+    { title: "面料/材质", dataIndex: "fabric_quality", width: 130, render: (v: string | null) => dash(v) },
+    { title: "颜色/印花", dataIndex: "color_print", width: 130, render: (v: string | null) => dash(v) },
     { title: "尺码范围", dataIndex: "size_range", width: 120, render: (v: string | null, row: InquiryStyleItem) => (
       <Space size={4} wrap>
         {v ? <Tag>{v}</Tag> : null}
@@ -695,16 +697,9 @@ function StyleItemsDrawer({
         {!v && row.sizes.length === 0 ? "—" : null}
       </Space>
     ) },
-    { title: "工艺标签", key: "processes", width: 180, render: (_: unknown, row: InquiryStyleItem) => (
-      row.processes.length > 0 ? (
-        <Space size={4} wrap>
-          {row.processes.slice(0, 5).map(p => <Tag key={p.id} color={p.is_special ? "purple" : "blue"}>{p.process_tag}</Tag>)}
-          {row.processes.length > 5 && <Tag>+{row.processes.length - 5}</Tag>}
-        </Space>
-      ) : "—"
-    ) },
+    { title: "报价状态", dataIndex: "quote_status", width: 90, render: (v: string | null) => dash(v) },
+    { title: "订单状态", dataIndex: "order_status", width: 90, render: (v: string | null) => dash(v) },
     { title: "报价单填报人", dataIndex: "quote_prepared_by", width: 110, render: (v: string | null) => dash(v) },
-    { title: "备注", dataIndex: "remark", width: 180, render: (v: string | null) => dash(v) },
   ]
 
   return (
@@ -726,7 +721,7 @@ function StyleItemsDrawer({
           columns={columns}
           dataSource={data}
           pagination={false}
-          scroll={{ x: 1140 }}
+          scroll={{ x: 1220 }}
         />
       )}
     </Drawer>
