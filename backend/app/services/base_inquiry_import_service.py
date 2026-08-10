@@ -40,6 +40,7 @@ class BaseImportRow:
     notes: str | None = None
     document_series_name: str | None = None
     order_group_marker: str | None = None
+    order_group_marker_scope: str | None = None
     raw_data: dict[str, Any] | None = None
 
 
@@ -252,7 +253,20 @@ def _is_order_group_marker(value: str | None) -> bool:
     if not value:
         return False
     compact = re.sub(r"\s+", "", value)
-    return any(token in compact for token in ("一套", "同套", "一组", "同组", "配套", "套装"))
+    return any(token in compact for token in ("一套", "同套", "一组", "同组", "配套", "套装", "一整套"))
+
+
+def _order_group_marker_size(value: str | None) -> int | None:
+    if not value:
+        return None
+    compact = re.sub(r"\s+", "", value)
+    if any(token in compact for token in ("两个", "2个", "二个", "两款", "二款", "2款", "两单", "二单", "2单")):
+        return 2
+    if any(token in compact for token in ("三个", "3个", "三款", "3款", "三单", "3单")):
+        return 3
+    if any(token in compact for token in ("四个", "4个", "四款", "4款", "四单", "4单")):
+        return 4
+    return None
 
 
 def _document_series_name(file_name: str, ws) -> str | None:
@@ -308,34 +322,91 @@ def _row_visual_signature(ws, row: int) -> str | None:
 
 def _detect_order_group_candidates(rows: list[BaseImportRow], visual_signals: dict[tuple[str, int], str | None]) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, ...]] = set()
     by_sheet: dict[str, list[BaseImportRow]] = {}
     for row in rows:
         if row.inquiry_no:
             by_sheet.setdefault(row.source_sheet, []).append(row)
 
+    def add_candidate(
+        sheet: str,
+        group_rows: list[BaseImportRow],
+        basis: list[str],
+        confidence: float,
+        status: str,
+        default_confirmed: bool,
+        group_marker: str | None,
+    ) -> None:
+        ordered = sorted(group_rows, key=lambda r: r.row_number)
+        inquiry_nos = list(dict.fromkeys([r.inquiry_no for r in ordered if r.inquiry_no]))
+        if len(inquiry_nos) < 2:
+            return
+        dedupe_key = ("|".join(inquiry_nos),)
+        if dedupe_key in seen_keys:
+            return
+        seen_keys.add(dedupe_key)
+        start, end = ordered[0].row_number, ordered[-1].row_number
+        candidates.append({
+            "key": f"{sheet}:{start}-{end}:{group_marker or ''}:{'-'.join(inquiry_nos)}",
+            "source_sheet": sheet,
+            "source_start_row": start,
+            "source_end_row": end,
+            "inquiry_nos": inquiry_nos,
+            "basis": basis,
+            "confidence": confidence,
+            "status": status,
+            "default_confirmed": default_confirmed,
+            "document_series_name": ordered[0].document_series_name,
+            "group_marker": group_marker,
+        })
+
     for sheet, sheet_rows in by_sheet.items():
-        marker_groups: dict[str, list[BaseImportRow]] = {}
+        marker_scope_groups: dict[str, list[BaseImportRow]] = {}
         for row in sheet_rows:
             if row.order_group_marker and _is_order_group_marker(row.order_group_marker):
-                marker_groups.setdefault(row.order_group_marker, []).append(row)
-        for marker, marker_rows in marker_groups.items():
-            ordered = sorted(marker_rows, key=lambda r: r.row_number)
-            if len(ordered) < 2:
+                if row.order_group_marker_scope:
+                    marker_scope_groups.setdefault(row.order_group_marker_scope, []).append(row)
+
+        for marker_rows in marker_scope_groups.values():
+            marker = marker_rows[0].order_group_marker
+            add_candidate(
+                sheet,
+                marker_rows,
+                [f"系列名列标注：{marker}", "标记单元格合并范围内的询单"],
+                0.98,
+                "pending_confirm",
+                True,
+                marker,
+            )
+
+        ordered_rows = sorted(sheet_rows, key=lambda r: r.row_number)
+        for index, row in enumerate(ordered_rows):
+            marker = row.order_group_marker
+            if not marker or not _is_order_group_marker(marker) or row.order_group_marker_scope:
                 continue
-            start, end = ordered[0].row_number, ordered[-1].row_number
-            candidates.append({
-                "key": f"{sheet}:{start}-{end}:{marker}:{'-'.join(r.inquiry_no or '' for r in ordered)}",
-                "source_sheet": sheet,
-                "source_start_row": start,
-                "source_end_row": end,
-                "inquiry_nos": [r.inquiry_no for r in ordered if r.inquiry_no],
-                "basis": [f"系列名列标注：{marker}", "同一 Excel 文件内的配套订单"],
-                "confidence": 0.95,
-                "status": "pending_confirm",
-                "default_confirmed": True,
-                "document_series_name": ordered[0].document_series_name,
-                "group_marker": marker,
-            })
+            marker_size = _order_group_marker_size(marker)
+            if not marker_size:
+                continue
+            group_rows = []
+            unique_nos: set[str] = set()
+            for next_row in ordered_rows[index:]:
+                if next_row.row_number - row.row_number > max(marker_size * 4, 8):
+                    break
+                if next_row.inquiry_no:
+                    group_rows.append(next_row)
+                    unique_nos.add(next_row.inquiry_no)
+                if len(unique_nos) >= marker_size:
+                    break
+            if len(unique_nos) >= marker_size:
+                add_candidate(
+                    sheet,
+                    group_rows,
+                    [f"系列名列标注：{marker}", f"按标记向下识别 {marker_size} 个不同询单号"],
+                    0.92,
+                    "pending_confirm",
+                    True,
+                    marker,
+                )
 
         current: list[BaseImportRow] = []
         current_signal: str | None = None
@@ -346,37 +417,11 @@ def _detect_order_group_candidates(rows: list[BaseImportRow], visual_signals: di
                 current.append(row)
             else:
                 if len(current) >= 2 and current_signal:
-                    start, end = current[0].row_number, current[-1].row_number
-                    candidates.append({
-                        "key": f"{sheet}:{start}-{end}:{'-'.join(r.inquiry_no or '' for r in current)}",
-                        "source_sheet": sheet,
-                        "source_start_row": start,
-                        "source_end_row": end,
-                        "inquiry_nos": [r.inquiry_no for r in current if r.inquiry_no],
-                        "basis": ["连续行", "相同底色/视觉区域"],
-                        "confidence": 0.55,
-                        "status": "group_candidate_uncertain",
-                        "default_confirmed": False,
-                        "document_series_name": current[0].document_series_name,
-                        "group_marker": None,
-                    })
+                    add_candidate(sheet, current, ["连续行", "相同底色/视觉区域"], 0.55, "group_candidate_uncertain", False, None)
                 current = [row]
                 current_signal = signal
         if len(current) >= 2 and current_signal:
-            start, end = current[0].row_number, current[-1].row_number
-            candidates.append({
-                "key": f"{sheet}:{start}-{end}:{'-'.join(r.inquiry_no or '' for r in current)}",
-                "source_sheet": sheet,
-                "source_start_row": start,
-                "source_end_row": end,
-                "inquiry_nos": [r.inquiry_no for r in current if r.inquiry_no],
-                "basis": ["连续行", "相同底色/视觉区域"],
-                "confidence": 0.55,
-                "status": "group_candidate_uncertain",
-                "default_confirmed": False,
-                "document_series_name": current[0].document_series_name,
-                "group_marker": None,
-            })
+            add_candidate(sheet, current, ["连续行", "相同底色/视觉区域"], 0.55, "group_candidate_uncertain", False, None)
     return candidates
 
 
@@ -444,6 +489,11 @@ def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None,
 
             raw_series_name = _clean_optional(_cell_with_merged(ws, r, series_col))
             order_group_marker = raw_series_name if _is_order_group_marker(raw_series_name) else None
+            marker_scope = None
+            if order_group_marker:
+                marker_range = _merged_parent_range(ws, r, series_col)
+                if marker_range:
+                    marker_scope = f"{sheet_name}:{marker_range.coord}:{order_group_marker}"
             series_name = doc_series_name if order_group_marker or not raw_series_name else raw_series_name
             customer_code = _clean_optional(_cell(ws, r, customer_code_col)) or uniform_customer_code
             row = BaseImportRow(
@@ -470,12 +520,14 @@ def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None,
                 ),
                 document_series_name=doc_series_name,
                 order_group_marker=order_group_marker,
+                order_group_marker_scope=marker_scope,
                 raw_data={
                     "source_sheet": sheet_name,
                     "row_number": r,
                     "inquiry_no": inquiry_no,
                     "document_series_name": doc_series_name,
                     "order_group_marker": order_group_marker,
+                    "order_group_marker_scope": marker_scope,
                     "customer_code_source": "excel" if _clean_optional(_cell(ws, r, customer_code_col)) else ("uniform_input" if customer_code else None),
                 },
             )
@@ -1028,7 +1080,14 @@ async def confirm_base_inquiry_import(
             "inquiry_nos": [inq.inquiry_no for inq in series_inquiries if inq.id not in existing_series_ids],
         })
 
-    selected_group_keys = set(confirmed_order_group_keys or [])
+    if confirmed_order_group_keys is None:
+        selected_group_keys = {
+            candidate["key"]
+            for candidate in preview.get("order_group_candidates", [])
+            if candidate.get("default_confirmed")
+        }
+    else:
+        selected_group_keys = set(confirmed_order_group_keys)
     created_groups: list[dict[str, Any]] = []
     if selected_group_keys:
         for candidate in preview.get("order_group_candidates", []):
