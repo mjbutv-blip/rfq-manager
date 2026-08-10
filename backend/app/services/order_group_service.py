@@ -381,7 +381,7 @@ def build_order_group_analysis(
     } | {
         q.quote_round for q in factory_quotes
         if q.quote_round and (q.quote_type or DOMESTIC) == DOMESTIC
-    })
+    } | {1, 2})
     if 1 not in available_rounds:
         available_rounds.insert(0, 1)
     round_price_tables = []

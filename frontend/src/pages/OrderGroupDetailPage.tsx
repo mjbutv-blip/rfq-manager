@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Alert, Button, Card, Descriptions, Space, Table, Tag, Typography } from "antd"
+import { Alert, Button, Card, Descriptions, Divider, Space, Table, Tag, Typography } from "antd"
 import type { ColumnsType } from "antd/es/table"
 import { useNavigate, useParams } from "react-router-dom"
 
@@ -119,7 +119,7 @@ function PriceRoundTable({ table, onOpenInquiry }: { table: OrderGroupRoundPrice
       size="small"
       title={`第${roundName(table.quote_round)}次报价`}
       styles={{ header: tableHeaderStyle, body: { padding: 0 } }}
-      style={{ marginBottom: 14, overflow: "hidden" }}
+      style={{ marginBottom: 0, overflow: "hidden", borderRadius: 0 }}
     >
       <Table
         bordered
@@ -166,6 +166,13 @@ function ScenarioCard({ scenario }: { scenario: OrderGroupScenario }) {
   )
 }
 
+function groupTitle(data: { group: { group_name: string | null; source_file_name: string | null } }) {
+  const sourceName = data.group.source_file_name?.replace(/\.(xlsx|xlsm|xls)$/i, "")
+  const groupName = data.group.group_name?.replace(/^询单号\s*\/\s*/, "").trim()
+  if (sourceName && groupName && groupName !== sourceName) return `${sourceName} / ${groupName}`
+  return groupName || sourceName || "订单组"
+}
+
 export default function OrderGroupDetailPage() {
   const { groupId } = useParams()
   const navigate = useNavigate()
@@ -202,12 +209,12 @@ export default function OrderGroupDetailPage() {
       <Space style={{ marginBottom: 12 }}>
         <Button onClick={() => navigate("/order-groups")}>返回订单组列表</Button>
       </Space>
-      <Title level={3}>订单组综合分析</Title>
+      <Title level={3}>订单组分析</Title>
 
-      <Card size="small" title="订单组基础信息" style={{ marginBottom: 16 }}>
+      <Card size="small" title="订单组基础信息" style={{ marginBottom: 12 }}>
         <Descriptions size="small" column={3}>
           <Descriptions.Item label="订单组编号">{data.group.group_code}</Descriptions.Item>
-          <Descriptions.Item label="系列 / 组标记">{val(data.group.group_name)}</Descriptions.Item>
+          <Descriptions.Item label="系列 / 组标记">{val(groupTitle(data))}</Descriptions.Item>
           <Descriptions.Item label="客户">{val(data.group.customer_code)}</Descriptions.Item>
           <Descriptions.Item label="状态"><Tag color={data.group.group_status === "active" ? "green" : "gold"}>{data.group.group_status}</Tag></Descriptions.Item>
           <Descriptions.Item label="来源文件">{val(data.group.source_file_name)}</Descriptions.Item>
@@ -217,25 +224,32 @@ export default function OrderGroupDetailPage() {
         </Descriptions>
       </Card>
 
-      <Card size="small" title="成组价格情况" style={{ marginBottom: 16 }}>
+      <Card
+        size="small"
+        title={`${groupTitle(data)} · 成组看价格情况`}
+        styles={{ header: tableHeaderStyle, body: { padding: 0 } }}
+        style={{ marginBottom: 16, overflow: "hidden" }}
+      >
         {data.analysis.round_price_tables.length ? (
-          data.analysis.round_price_tables.map(table => (
-            <PriceRoundTable
-              key={table.quote_round}
-              table={table}
-              onOpenInquiry={inquiryId => navigate(`/inquiry/${inquiryId}/journey`)}
-            />
+          data.analysis.round_price_tables.map((table, index) => (
+            <div key={table.quote_round}>
+              {index > 0 && <Divider style={{ margin: 0 }} />}
+              <PriceRoundTable
+                table={table}
+                onOpenInquiry={inquiryId => navigate(`/inquiry/${inquiryId}/journey`)}
+              />
+            </div>
           ))
         ) : (
-          <Text type="secondary">暂无报价轮次数据。</Text>
+          <div style={{ padding: 12 }}><Text type="secondary">暂无报价轮次数据。</Text></div>
         )}
       </Card>
 
-      <Card size="small" title="组内询单列表" style={{ marginBottom: 16 }}>
+      <Card size="small" title="组内询单列表" style={{ marginBottom: 16, display: "none" }}>
         <Table rowKey="inquiry_id" size="small" columns={inquiryColumns} dataSource={data.analysis.inquiries} scroll={{ x: 1800 }} pagination={false} />
       </Card>
 
-      <Card size="small" title="第一轮报价综合分析" style={{ marginBottom: 16 }}>
+      <Card size="small" title="辅助分析" style={{ marginBottom: 16 }}>
         <Space direction="vertical" style={{ width: "100%" }}>
           <ScenarioCard scenario={data.analysis.scenarios.lowest_each} />
           {data.analysis.scenarios.unified_factory.length ? (
