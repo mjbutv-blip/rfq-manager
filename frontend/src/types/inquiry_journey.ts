@@ -114,8 +114,12 @@ export interface JourneyAnalysisMessage {
 }
 
 export interface JourneyFactoryRiskAnalysis {
+  selected_factory_id?: string | null
+  selected_factory_name?: string | null
   lowest_factory_id: string | null
   lowest_factory_name: string | null
+  lowest_risk_level?: string | null
+  lowest_risk_notes?: string | null
   risk_level: string | null
   risk_notes: string | null
   messages: JourneyAnalysisMessage[]

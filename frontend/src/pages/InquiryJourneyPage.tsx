@@ -535,7 +535,7 @@ function FirstRoundExcelSheet({
               {cell(input("current_exchange_rate"))}
               {cell(money(q?.gross_profit_cny), { colSpan: 2, strong: true })}
               {cell(money(q?.trade_amount_usd), { colSpan: 2, strong: true })}
-              {cell("最低工厂问题备注")}
+              {cell("选用工厂风险原因")}
               {cell(dash(risk.risk_notes), { colSpan: 4, align: "left" })}
             </tr>
             <tr>

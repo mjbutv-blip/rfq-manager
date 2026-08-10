@@ -295,6 +295,15 @@ async def _factory_for_quote(db: AsyncSession, quote: FactoryQuoteRecord | None)
     )).scalars().first()
 
 
+async def _factory_by_name(db: AsyncSession, name: str | None) -> Factory | None:
+    name = (name or "").strip()
+    if not name:
+        return None
+    return (await db.execute(
+        select(Factory).where(or_(Factory.factory_name == name, Factory.factory_short_name == name))
+    )).scalars().first()
+
+
 def _lowest_quote(cards: list[FactoryQuoteRecord], analysis: dict[str, Any]) -> FactoryQuoteRecord | None:
     if not analysis.get("comparable") or analysis.get("lowest_price") is None:
         return None
@@ -309,31 +318,48 @@ async def build_factory_risk_analysis(
     factory_analysis: dict[str, Any],
 ) -> dict[str, Any]:
     lowest = _lowest_quote(cards, factory_analysis)
-    factory = await _factory_for_quote(db, lowest)
-    risk_level = factory.risk_level if factory else None
-    risk_notes = (factory.risk_notes or factory.remark) if factory else None
+    lowest_factory = await _factory_for_quote(db, lowest)
+    selected_factory_name = factory_analysis.get("selected_factory")
+    selected_factory = await _factory_by_name(db, selected_factory_name)
+    if selected_factory is None and selected_factory_name:
+        selected_factory = await _factory_for_quote(
+            db,
+            next((c for c in cards if (c.factory_name or "").strip() == selected_factory_name.strip()), None),
+        )
+
+    risk_level = selected_factory.risk_level if selected_factory else None
+    risk_notes = (selected_factory.risk_notes or selected_factory.remark) if selected_factory else None
+    lowest_risk_level = lowest_factory.risk_level if lowest_factory else None
+    lowest_risk_notes = (lowest_factory.risk_notes or lowest_factory.remark) if lowest_factory else None
     messages: list[dict[str, str]] = []
     if risk_level == "high":
         messages.append({
             "level": "warning",
-            "title": "最低报价工厂风险记录",
-            "message": "最低报价工厂存在高风险记录，请结合质量、交期、配合度和历史问题复核后再决定。",
+            "title": "选用工厂风险记录",
+            "message": "选用工厂存在高风险记录，请结合质量、交期、配合度和历史问题复核后再决定。",
         })
     if risk_level == "blocked":
         messages.append({
             "level": "error",
-            "title": "最低报价工厂限制合作",
-            "message": "最低报价工厂被标记为限制合作/暂停合作，不建议作为默认选用工厂。",
+            "title": "选用工厂限制合作",
+            "message": "选用工厂被标记为限制合作/暂停合作，不建议作为默认选用工厂。",
         })
     if risk_notes:
         messages.append({
             "level": "info",
-            "title": "工厂问题备注",
+            "title": "选用工厂风险原因",
             "message": risk_notes,
         })
     return {
-        "lowest_factory_id": str(factory.id) if factory else None,
-        "lowest_factory_name": factory.factory_short_name or factory.factory_name if factory else (lowest.factory_name if lowest else None),
+        "selected_factory_id": str(selected_factory.id) if selected_factory else None,
+        "selected_factory_name": (
+            selected_factory.factory_short_name or selected_factory.factory_name
+            if selected_factory else selected_factory_name
+        ),
+        "lowest_factory_id": str(lowest_factory.id) if lowest_factory else None,
+        "lowest_factory_name": lowest_factory.factory_short_name or lowest_factory.factory_name if lowest_factory else (lowest.factory_name if lowest else None),
+        "lowest_risk_level": lowest_risk_level,
+        "lowest_risk_notes": lowest_risk_notes,
         "risk_level": risk_level,
         "risk_notes": risk_notes,
         "messages": messages,
@@ -364,7 +390,7 @@ def build_factory_selection_advice(
     factory_risk: dict[str, Any],
 ) -> dict[str, Any]:
     pct = factory_analysis.get("second_lowest_vs_lowest_pct")
-    risk_level = factory_risk.get("risk_level")
+    risk_level = factory_risk.get("lowest_risk_level")
     second_factories = factory_analysis.get("second_lowest_factories") or []
     lowest_factories = factory_analysis.get("lowest_factories") or []
     triggered = (
