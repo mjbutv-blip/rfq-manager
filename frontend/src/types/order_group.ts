@@ -62,6 +62,45 @@ export interface OrderGroupInquiryAnalysis {
   trade_amount_share: number | null
 }
 
+export interface OrderGroupRoundPriceRow {
+  inquiry_id: string
+  series: string | null
+  inquiry_no: string
+  customer_order_no: string | null
+  image: string | null
+  quantity: number | null
+  selected_factory: string | null
+  profit_value: number | null
+  customer_price_usd: number | null
+  customer_price_change_amount: number | null
+  customer_price_change_rate: number | null
+  selected_factory_price_cny: number | null
+  gross_profit_cny: number | null
+  gross_profit_change_amount: number | null
+  gross_profit_change_rate: number | null
+  trade_amount_usd: number | null
+  trade_amount_change_amount: number | null
+  trade_amount_change_rate: number | null
+  lowest_factory: string | null
+  lowest_price: number | null
+  highest_factory: string | null
+  highest_price: number | null
+}
+
+export interface OrderGroupRoundPriceTable {
+  quote_round: number
+  label: string
+  rows: OrderGroupRoundPriceRow[]
+  totals: {
+    group_gross_profit_cny: number | null
+    group_trade_amount_usd: number | null
+    group_gross_profit_change_amount: number | null
+    group_gross_profit_change_rate: number | null
+    group_trade_amount_change_amount: number | null
+    group_trade_amount_change_rate: number | null
+  }
+}
+
 export interface OrderGroupDetail {
   group: {
     id: string
@@ -79,6 +118,7 @@ export interface OrderGroupDetail {
   items: { id: string; inquiry_id: string; inquiry_no: string; source_sheet: string | null; source_row: number | null; sort_order: number }[]
   analysis: {
     inquiries: OrderGroupInquiryAnalysis[]
+    round_price_tables: OrderGroupRoundPriceTable[]
     scenarios: {
       lowest_each: OrderGroupScenario
       unified_factory: OrderGroupScenario[]

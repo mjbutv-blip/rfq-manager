@@ -4,7 +4,7 @@ import type { ColumnsType } from "antd/es/table"
 import { useNavigate, useParams } from "react-router-dom"
 
 import { fetchOrderGroupDetail } from "@/api/order_groups"
-import type { OrderGroupInquiryAnalysis, OrderGroupScenario } from "@/types/order_group"
+import type { OrderGroupInquiryAnalysis, OrderGroupRoundPriceRow, OrderGroupRoundPriceTable, OrderGroupScenario } from "@/types/order_group"
 
 const { Title, Text } = Typography
 
@@ -18,6 +18,121 @@ function money(v: number | null | undefined) {
 
 function pct(v: number | null | undefined) {
   return v == null || Number.isNaN(v) ? "—" : `${(v * 100).toFixed(1)}%`
+}
+
+function signedMoney(v: number | null | undefined) {
+  if (v == null || Number.isNaN(v)) return "—"
+  const abs = Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 })
+  return `${v > 0 ? "+" : v < 0 ? "-" : ""}${abs}`
+}
+
+function changeText(amount: number | null | undefined, rate: number | null | undefined) {
+  if (amount == null && rate == null) return "—"
+  return `${signedMoney(amount)} / ${pct(rate)}`
+}
+
+function roundName(round: number) {
+  const names: Record<number, string> = { 1: "一", 2: "二", 3: "三", 4: "四", 5: "五" }
+  return names[round] ?? String(round)
+}
+
+const tableHeaderStyle = {
+  background: "#1f3b66",
+  color: "#fff",
+  fontWeight: 600,
+} as const
+
+function groupCell(value: React.ReactNode, index: number, rowCount: number) {
+  return {
+    children: value,
+    props: { rowSpan: index === 0 ? Math.max(rowCount, 1) : 0 },
+  }
+}
+
+function PriceRoundTable({ table, onOpenInquiry }: { table: OrderGroupRoundPriceTable; onOpenInquiry: (inquiryId: string) => void }) {
+  const rows = table.rows
+  const rowCount = rows.length
+  const commonColumns: ColumnsType<OrderGroupRoundPriceRow> = [
+    { title: "系列", dataIndex: "series", width: 90, fixed: "left", render: val },
+    { title: "询单号", dataIndex: "inquiry_no", width: 120, fixed: "left", render: (v, r) => <Button type="link" size="small" onClick={() => onOpenInquiry(r.inquiry_id)}>{v}</Button> },
+    { title: "订单号", dataIndex: "customer_order_no", width: 130, render: val },
+    { title: "图片", dataIndex: "image", width: 80, align: "center", render: val },
+    { title: "数量", dataIndex: "quantity", width: 100, align: "right", render: val },
+    { title: "选用工厂", dataIndex: "selected_factory", width: 130, render: val },
+  ]
+  const firstRoundColumns: ColumnsType<OrderGroupRoundPriceRow> = [
+    ...commonColumns,
+    { title: "报价利润值", dataIndex: "profit_value", width: 110, align: "right", render: money },
+    { title: "客人价格", dataIndex: "customer_price_usd", width: 110, align: "right", render: money },
+    { title: "毛利润额", dataIndex: "gross_profit_cny", width: 120, align: "right", render: money },
+    {
+      title: "整组毛利润额",
+      width: 140,
+      align: "right",
+      render: (_, __, index) => groupCell(<strong>{money(table.totals.group_gross_profit_cny)}</strong>, index, rowCount),
+    },
+    { title: "贸易额", dataIndex: "trade_amount_usd", width: 120, align: "right", render: money },
+    {
+      title: "整组贸易额",
+      width: 140,
+      align: "right",
+      render: (_, __, index) => groupCell(<strong>{money(table.totals.group_trade_amount_usd)}</strong>, index, rowCount),
+    },
+  ]
+  const laterRoundColumns: ColumnsType<OrderGroupRoundPriceRow> = [
+    ...commonColumns,
+    { title: "净利润值", dataIndex: "profit_value", width: 110, align: "right", render: money },
+    { title: "客人价格", dataIndex: "customer_price_usd", width: 110, align: "right", render: money },
+    { title: "客人价格变动差价", dataIndex: "customer_price_change_amount", width: 150, align: "right", render: signedMoney },
+    { title: "客人价格变动比率", dataIndex: "customer_price_change_rate", width: 150, align: "right", render: pct },
+    { title: "毛利润额", dataIndex: "gross_profit_cny", width: 120, align: "right", render: money },
+    { title: "毛利润额变动情况", width: 150, align: "right", render: (_, r) => changeText(r.gross_profit_change_amount, r.gross_profit_change_rate) },
+    {
+      title: "整组毛利润额",
+      width: 140,
+      align: "right",
+      render: (_, __, index) => groupCell(<strong>{money(table.totals.group_gross_profit_cny)}</strong>, index, rowCount),
+    },
+    {
+      title: "整组毛利润额变动情况",
+      width: 170,
+      align: "right",
+      render: (_, __, index) => groupCell(changeText(table.totals.group_gross_profit_change_amount, table.totals.group_gross_profit_change_rate), index, rowCount),
+    },
+    { title: "贸易额", dataIndex: "trade_amount_usd", width: 120, align: "right", render: money },
+    {
+      title: "整组贸易额",
+      width: 140,
+      align: "right",
+      render: (_, __, index) => groupCell(<strong>{money(table.totals.group_trade_amount_usd)}</strong>, index, rowCount),
+    },
+    {
+      title: "整组贸易额变动情况",
+      width: 170,
+      align: "right",
+      render: (_, __, index) => groupCell(changeText(table.totals.group_trade_amount_change_amount, table.totals.group_trade_amount_change_rate), index, rowCount),
+    },
+  ]
+
+  return (
+    <Card
+      size="small"
+      title={`第${roundName(table.quote_round)}次报价`}
+      styles={{ header: tableHeaderStyle, body: { padding: 0 } }}
+      style={{ marginBottom: 14, overflow: "hidden" }}
+    >
+      <Table
+        bordered
+        size="small"
+        rowKey="inquiry_id"
+        columns={table.quote_round === 1 ? firstRoundColumns : laterRoundColumns}
+        dataSource={rows}
+        pagination={false}
+        scroll={{ x: table.quote_round === 1 ? 1400 : 2200 }}
+        locale={{ emptyText: `暂无第${roundName(table.quote_round)}次报价数据` }}
+      />
+    </Card>
+  )
 }
 
 function ScenarioCard({ scenario }: { scenario: OrderGroupScenario }) {
@@ -100,6 +215,20 @@ export default function OrderGroupDetailPage() {
           <Descriptions.Item label="来源行">{data.group.source_start_row ? `${data.group.source_start_row}-${data.group.source_end_row}` : "—"}</Descriptions.Item>
           <Descriptions.Item label="备注">{val(data.group.notes)}</Descriptions.Item>
         </Descriptions>
+      </Card>
+
+      <Card size="small" title="成组价格情况" style={{ marginBottom: 16 }}>
+        {data.analysis.round_price_tables.length ? (
+          data.analysis.round_price_tables.map(table => (
+            <PriceRoundTable
+              key={table.quote_round}
+              table={table}
+              onOpenInquiry={inquiryId => navigate(`/inquiry/${inquiryId}/journey`)}
+            />
+          ))
+        ) : (
+          <Text type="secondary">暂无报价轮次数据。</Text>
+        )}
       </Card>
 
       <Card size="small" title="组内询单列表" style={{ marginBottom: 16 }}>

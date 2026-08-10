@@ -39,21 +39,29 @@ def _exchange_rate(quote_item: QuoteItem | None) -> float | None:
     return _num(quote_item.current_exchange_rate) or _num(quote_item.exchange_rate)
 
 
-def _quote_item_for(inquiry_id, quote_items: list[QuoteItem]) -> QuoteItem | None:
+def _quote_item_for_round(inquiry_id, quote_items: list[QuoteItem], quote_round: int) -> QuoteItem | None:
     for item in quote_items:
-        if item.inquiry_id == inquiry_id and item.quote_round == 1 and (item.quote_type or DOMESTIC) == DOMESTIC:
+        if item.inquiry_id == inquiry_id and item.quote_round == quote_round and (item.quote_type or DOMESTIC) == DOMESTIC:
             return item
     return None
 
 
-def _valid_quotes_for(inquiry_id, quotes: list[FactoryQuoteRecord]) -> list[FactoryQuoteRecord]:
+def _quote_item_for(inquiry_id, quote_items: list[QuoteItem]) -> QuoteItem | None:
+    return _quote_item_for_round(inquiry_id, quote_items, 1)
+
+
+def _valid_quotes_for_round(inquiry_id, quotes: list[FactoryQuoteRecord], quote_round: int) -> list[FactoryQuoteRecord]:
     return [
         q for q in quotes
         if q.inquiry_id == inquiry_id
-        and q.quote_round == 1
+        and q.quote_round == quote_round
         and (q.quote_type or DOMESTIC) == DOMESTIC
         and q.factory_price is not None
     ]
+
+
+def _valid_quotes_for(inquiry_id, quotes: list[FactoryQuoteRecord]) -> list[FactoryQuoteRecord]:
+    return _valid_quotes_for_round(inquiry_id, quotes, 1)
 
 
 def _profit_for(inq: Inquiry, quote_item: QuoteItem | None, factory_price: float | None) -> dict[str, Any]:
@@ -129,6 +137,116 @@ def _scenario(label: str, code: str, selections: list[dict[str, Any]], note: str
         **totals,
         "management_note": note,
     }
+
+
+def _change(current: float | None, previous: float | None) -> dict[str, float | None]:
+    if current is None or previous is None:
+        return {"amount": None, "rate": None}
+    amount = current - previous
+    return {"amount": amount, "rate": amount / previous if previous else None}
+
+
+def _round_price_table(
+    inquiries: list[Inquiry],
+    quote_items: list[QuoteItem],
+    factory_quotes: list[FactoryQuoteRecord],
+    quote_round: int,
+    previous_rows_by_inquiry: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    total_gross_profit = 0.0
+    total_trade_amount = 0.0
+    has_gross_profit = False
+    has_trade_amount = False
+
+    for inq in inquiries:
+        qitem = _quote_item_for_round(inq.id, quote_items, quote_round)
+        valid = _valid_quotes_for_round(inq.id, factory_quotes, quote_round)
+        comparable = _units_consistent(valid)
+        sorted_quotes = sorted(valid, key=lambda q: (float(q.factory_price), q.factory_name or ""))
+        lowest = sorted_quotes[0] if sorted_quotes and comparable else None
+        highest = sorted_quotes[-1] if sorted_quotes and comparable else None
+        selected_factory = qitem.selected_factory if qitem else None
+        selected_factory_price = _num(qitem.selected_factory_price_cny) if qitem else None
+        if selected_factory and selected_factory_price is None:
+            rec = next((q for q in sorted_quotes if _factory_key(q.factory_name) == _factory_key(selected_factory)), None)
+            selected_factory_price = _num(rec.factory_price) if rec else None
+        if not selected_factory and len(sorted_quotes) == 1:
+            selected_factory = sorted_quotes[0].factory_name
+            selected_factory_price = _num(sorted_quotes[0].factory_price)
+
+        quantity = _quantity(inq, qitem)
+        customer_price = _num(qitem.final_quote_usd) if qitem else (_num(inq.final_quote) if quote_round == 1 else None)
+        gross_profit = _num(qitem.gross_profit_cny) if qitem else None
+        if gross_profit is None and qitem:
+            gross_profit = _profit_for(inq, qitem, selected_factory_price)["gross_profit_cny"]
+        trade_amount = _num(qitem.trade_amount_usd) if qitem else (_num(inq.trade_amount) if quote_round == 1 else None)
+
+        if gross_profit is not None:
+            total_gross_profit += gross_profit
+            has_gross_profit = True
+        if trade_amount is not None:
+            total_trade_amount += trade_amount
+            has_trade_amount = True
+
+        previous = (previous_rows_by_inquiry or {}).get(str(inq.id), {})
+        customer_change = _change(customer_price, previous.get("customer_price_usd"))
+        gross_change = _change(gross_profit, previous.get("gross_profit_cny"))
+        trade_change = _change(trade_amount, previous.get("trade_amount_usd"))
+
+        rows.append({
+            "inquiry_id": str(inq.id),
+            "series": inq.series_name or inq.product_category or inq.group_name,
+            "inquiry_no": inq.inquiry_no,
+            "customer_order_no": inq.customer_order_no,
+            "image": None,
+            "quantity": quantity,
+            "selected_factory": selected_factory,
+            "profit_value": _num(qitem.net_profit_pct) if qitem else None,
+            "customer_price_usd": customer_price,
+            "customer_price_change_amount": customer_change["amount"],
+            "customer_price_change_rate": customer_change["rate"],
+            "selected_factory_price_cny": selected_factory_price,
+            "gross_profit_cny": gross_profit,
+            "gross_profit_change_amount": gross_change["amount"],
+            "gross_profit_change_rate": gross_change["rate"],
+            "trade_amount_usd": trade_amount,
+            "trade_amount_change_amount": trade_change["amount"],
+            "trade_amount_change_rate": trade_change["rate"],
+            "lowest_factory": lowest.factory_name if lowest else None,
+            "lowest_price": _num(lowest.factory_price) if lowest else None,
+            "highest_factory": highest.factory_name if highest else None,
+            "highest_price": _num(highest.factory_price) if highest else None,
+        })
+
+    total_gross = total_gross_profit if has_gross_profit else None
+    total_trade = total_trade_amount if has_trade_amount else None
+    previous_totals = previous_rows_by_inquiry.get("__totals__", {}) if previous_rows_by_inquiry else {}
+    group_gross_change = _change(total_gross, previous_totals.get("group_gross_profit_cny"))
+    group_trade_change = _change(total_trade, previous_totals.get("group_trade_amount_usd"))
+
+    return {
+        "quote_round": quote_round,
+        "label": f"第{quote_round}次报价",
+        "rows": rows,
+        "totals": {
+            "group_gross_profit_cny": total_gross,
+            "group_trade_amount_usd": total_trade,
+            "group_gross_profit_change_amount": group_gross_change["amount"],
+            "group_gross_profit_change_rate": group_gross_change["rate"],
+            "group_trade_amount_change_amount": group_trade_change["amount"],
+            "group_trade_amount_change_rate": group_trade_change["rate"],
+        },
+    }
+
+
+def _round_lookup(table: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    lookup = {row["inquiry_id"]: row for row in table["rows"]}
+    lookup["__totals__"] = {
+        "group_gross_profit_cny": table["totals"]["group_gross_profit_cny"],
+        "group_trade_amount_usd": table["totals"]["group_trade_amount_usd"],
+    }
+    return lookup
 
 
 def build_order_group_analysis(
@@ -257,8 +375,25 @@ def build_order_group_analysis(
         row["quantity_share"] = (row["quantity"] or 0) / total_qty if total_qty else None
         row["trade_amount_share"] = (row["trade_amount_usd"] or 0) / total_trade if total_trade else None
 
+    available_rounds = sorted({
+        item.quote_round for item in quote_items
+        if item.quote_round and (item.quote_type or DOMESTIC) == DOMESTIC
+    } | {
+        q.quote_round for q in factory_quotes
+        if q.quote_round and (q.quote_type or DOMESTIC) == DOMESTIC
+    })
+    if 1 not in available_rounds:
+        available_rounds.insert(0, 1)
+    round_price_tables = []
+    previous_lookup: dict[str, dict[str, Any]] | None = None
+    for round_no in available_rounds:
+        table = _round_price_table(inquiries, quote_items, factory_quotes, round_no, previous_lookup)
+        round_price_tables.append(table)
+        previous_lookup = _round_lookup(table)
+
     return {
         "inquiries": inquiry_rows,
+        "round_price_tables": round_price_tables,
         "scenarios": {
             "lowest_each": scenario_a,
             "unified_factory": unified_scenarios,
