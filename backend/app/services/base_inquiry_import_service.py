@@ -32,6 +32,9 @@ class BaseImportRow:
     product_name: str | None = None
     product_category: str | None = None
     series_name: str | None = None
+    fabric_quality: str | None = None
+    color_print: str | None = None
+    size_range: str | None = None
     quantity: int | None = None
     style_no: str | None = None
     notes: str | None = None
@@ -168,6 +171,39 @@ def _fill_empty_inquiry_fields(inquiry: Inquiry, row: BaseImportRow, customer: C
     return updates
 
 
+def _item_fill_candidates(row: BaseImportRow) -> tuple[tuple[str, Any], ...]:
+    return (
+        ("product_name", row.product_name),
+        ("product_category", row.product_category),
+        ("series_name", row.series_name),
+        ("fabric_quality", row.fabric_quality),
+        ("color_print", row.color_print),
+        ("size_range", row.size_range),
+        ("quantity", row.quantity),
+        ("style_no", row.style_no),
+        ("order_status", row.order_status),
+    )
+
+
+def _fillable_item_fields(item: InquiryItem | None, row: BaseImportRow) -> list[str]:
+    if item is None:
+        return []
+    return [
+        field
+        for field, value in _item_fill_candidates(row)
+        if value is not None and _is_empty(getattr(item, field, None))
+    ]
+
+
+def _fill_empty_item_fields(item: InquiryItem, row: BaseImportRow) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    for field, value in _item_fill_candidates(row):
+        if value is not None and _is_empty(getattr(item, field, None)):
+            setattr(item, field, value)
+            updates[field] = _json_value(value)
+    return updates
+
+
 def _header_map(ws) -> dict[str, int]:
     headers: dict[str, int] = {}
     max_header_row = min(ws.max_row, 4)
@@ -252,6 +288,7 @@ def _item_key(row: BaseImportRow) -> tuple[str, str | None, bool]:
 def _is_non_default_fill(fill_key: str | None) -> bool:
     if not fill_key:
         return False
+    fill_key = str(fill_key)
     normalized = fill_key.upper().replace("00", "", 1) if fill_key.upper().startswith("00") else fill_key.upper()
     return normalized not in {"000000", "FFFFFF", "FFFFFFFF", "00000000", "NONE"}
 
@@ -363,6 +400,9 @@ def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None,
         series_col = _find_header(headers, "系列")
         season_col = _find_header(headers, "季节")
         product_col = _find_header(headers, "品名")
+        fabric_col = _find_header(headers, "面料品质--正染", "面料品质", "面料")
+        color_col = _find_header(headers, "面料颜色/印花", "颜色/印花", "颜色")
+        size_col = _find_header(headers, "尺码范围", "尺码")
         qty_col = _find_header(headers, "数量") if sheet_name in {"总表", "总表海外"} else None
         style_col = _find_header(headers, "做工图/尺码表", "款号", "style_no")
         order_status_col = 20 if sheet_name in {"总表", "总表海外"} else None
@@ -418,6 +458,9 @@ def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None,
                 product_name=product_name,
                 product_category=None,
                 series_name=series_name,
+                fabric_quality=_clean_optional(_cell(ws, r, fabric_col)),
+                color_print=_clean_optional(_cell(ws, r, color_col)),
+                size_range=_clean_optional(_cell(ws, r, size_col)),
                 quantity=_to_int(_cell(ws, r, qty_col)),
                 style_no=_clean_optional(_cell(ws, r, style_col)),
                 notes=_notes(
@@ -471,11 +514,11 @@ async def _load_inquiries(db: AsyncSession, inquiry_nos: set[str]) -> dict[str, 
     return {i.inquiry_no: i for i in result.scalars().all()}
 
 
-async def _load_items(db: AsyncSession, inquiry_nos: set[str]) -> dict[str, set[tuple[str, str | None]]]:
+async def _load_items(db: AsyncSession, inquiry_nos: set[str]) -> dict[str, dict[tuple[str, str | None], InquiryItem]]:
     if not inquiry_nos:
         return {}
     result = await db.execute(select(InquiryItem).where(InquiryItem.inquiry_no.in_(inquiry_nos)))
-    items: dict[str, set[tuple[str, str | None]]] = {}
+    items: dict[str, dict[tuple[str, str | None], InquiryItem]] = {}
     for item in result.scalars().all():
         pseudo = BaseImportRow(
             source_sheet="db",
@@ -487,7 +530,7 @@ async def _load_items(db: AsyncSession, inquiry_nos: set[str]) -> dict[str, set[
         )
         key_type, key, uncertain = _item_key(pseudo)
         if not uncertain:
-            items.setdefault(item.inquiry_no or "", set()).add((key_type, key))
+            items.setdefault(item.inquiry_no or "", {})[(key_type, key)] = item
     return items
 
 
@@ -504,6 +547,9 @@ def _row_payload(row: BaseImportRow) -> dict[str, Any]:
         "product_name": row.product_name,
         "product_category": row.product_category,
         "series_name": row.series_name,
+        "fabric_quality": row.fabric_quality,
+        "color_print": row.color_print,
+        "size_range": row.size_range,
         "quantity": row.quantity,
         "style_no": row.style_no,
         "notes": row.notes,
@@ -598,17 +644,24 @@ async def preview_base_inquiry_import(
             duplicate = False
         else:
             key_tuple = (key_type, key)
-            duplicate = key_tuple in existing_items.get(row.inquiry_no, set()) or key_tuple in seen_items.get(row.inquiry_no, set())
+            existing_item = existing_items.get(row.inquiry_no, {}).get(key_tuple)
+            duplicate = existing_item is not None or key_tuple in seen_items.get(row.inquiry_no, set())
         if duplicate:
             status = "duplicate_item"
             flags.append("duplicate_item")
             summary["duplicate_items"] += 1
+            fillable_item_fields = _fillable_item_fields(existing_item, row)
         else:
+            fillable_item_fields = []
             seen_items.setdefault(row.inquiry_no, set()).add((key_type, key))
             if status != "failed":
                 summary["new_items"] += 1
 
-        can_confirm = status != "failed" and (status != "duplicate_item" or bool(fillable_inquiry_fields))
+        can_confirm = status != "failed" and (
+            status != "duplicate_item"
+            or bool(fillable_inquiry_fields)
+            or bool(fillable_item_fields)
+        )
         if can_confirm:
             summary["importable_rows"] += 1
 
@@ -619,6 +672,7 @@ async def preview_base_inquiry_import(
             "errors": errors,
             "item_identity_key": f"{key_type}:{key}" if key else key_type,
             "fillable_inquiry_fields": fillable_inquiry_fields,
+            "fillable_item_fields": fillable_item_fields,
             "customer_matched": bool(row.customer_code and row.customer_code in customers),
             "customer_will_create": customer_will_create,
             "can_confirm": can_confirm,
@@ -677,6 +731,7 @@ async def confirm_base_inquiry_import(
         "created_inquiries": 0,
         "created_items": 0,
         "updated_inquiry_fields": 0,
+        "updated_item_fields": 0,
         "existing_inquiries": 0,
         "duplicate_items_skipped": 0,
         "customer_records_created": 0,
@@ -692,6 +747,7 @@ async def confirm_base_inquiry_import(
     created_inquiries: dict[str, Inquiry] = {}
     successful_inquiries: dict[str, Inquiry] = {}
     created_item_keys: dict[str, set[tuple[str, str | None]]] = {}
+    existing_items = await _load_items(db, {r["inquiry_no"] for r in preview["rows"] if r.get("inquiry_no")})
 
     for row_data in preview["rows"]:
         status = row_data["status"]
@@ -707,6 +763,9 @@ async def confirm_base_inquiry_import(
             product_name=row_data["product_name"],
             product_category=row_data["product_category"],
             series_name=row_data["series_name"],
+            fabric_quality=row_data.get("fabric_quality"),
+            color_print=row_data.get("color_print"),
+            size_range=row_data.get("size_range"),
             quantity=row_data["quantity"],
             style_no=row_data["style_no"],
             notes=row_data["notes"],
@@ -789,8 +848,31 @@ async def confirm_base_inquiry_import(
                     successful_inquiries[inquiry.inquiry_no] = inquiry
 
                     if status == "duplicate_item":
-                        summary["duplicate_items_skipped"] += 1
-                        import_status = "skipped_duplicate_item"
+                        key_type, key, uncertain = _item_key(row)
+                        existing_item = None if uncertain else existing_items.get(row.inquiry_no or "", {}).get((key_type, key))
+                        item_updates = _fill_empty_item_fields(existing_item, row) if existing_item else {}
+                        if item_updates and existing_item:
+                            summary["updated_item_fields"] += len(item_updates)
+                            await _log_in_session(
+                                db,
+                                user,
+                                action_type="base_inquiry_import_item_field_fill_from_excel",
+                                target_type="inquiry_item",
+                                target_id=str(existing_item.id),
+                                inquiry_id=inquiry.id,
+                                inquiry_no=inquiry.inquiry_no,
+                                description="基础询单导入补齐款式明细空字段",
+                                after_data={
+                                    "excel_file": file_name,
+                                    "sheet": row.source_sheet,
+                                    "row": row.row_number,
+                                    "updated_fields": item_updates,
+                                },
+                            )
+                            import_status = "updated_duplicate_item"
+                        else:
+                            summary["duplicate_items_skipped"] += 1
+                            import_status = "skipped_duplicate_item"
                         if not row.customer_code:
                             summary["customer_unmatched_rows"] += 1
                         skip_item = True
@@ -819,6 +901,9 @@ async def confirm_base_inquiry_import(
                             product_name=row.product_name,
                             product_category=row.product_category,
                             series_name=row.series_name,
+                            fabric_quality=row.fabric_quality,
+                            color_print=row.color_print,
+                            size_range=row.size_range,
                             quantity=row.quantity,
                             style_no=row.style_no,
                             order_status=row.order_status,
