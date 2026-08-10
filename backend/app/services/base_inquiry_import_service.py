@@ -271,6 +271,8 @@ def _order_group_marker_size(value: str | None) -> int | None:
 
 def _document_series_name(file_name: str, ws) -> str | None:
     title = _clean_optional(ws.cell(2, 1).value) or _clean_optional(file_name.rsplit("/", 1)[-1])
+    if title and title in {"询单号", "订单号", "系列", "品名"}:
+        title = _clean_optional(file_name.rsplit("/", 1)[-1])
     if not title:
         return None
     title = re.sub(r"\.(xlsx|xlsm|xls)$", "", title, flags=re.IGNORECASE)
