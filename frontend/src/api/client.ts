@@ -29,8 +29,13 @@ export function setCurrentUsername(username: string): void {
 
 // ── Axios client ──────────────────────────────────────────────────────────────
 
+const rawApiUrl = import.meta.env.VITE_API_URL ?? ""
+const apiBaseUrl = import.meta.env.PROD && /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/.test(rawApiUrl)
+  ? "https://rfq-manager-production.up.railway.app"
+  : rawApiUrl
+
 const client = axios.create({
-  baseURL: (import.meta.env.VITE_API_URL ?? "") + "/api/v1",
+  baseURL: apiBaseUrl + "/api/v1",
   timeout: 60_000,
   headers: { "Content-Type": "application/json" },
 })
