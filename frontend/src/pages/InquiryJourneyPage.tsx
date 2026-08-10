@@ -731,7 +731,7 @@ function SecondRoundExcelBlock({
       .filter(q => q.factory_name)
       .map(q => [factoryNameKey(q.factory_name), q]),
   )
-  const quoteSlots = [...items, ...Array(Math.max(0, 3 - items.length)).fill(null)] as (JourneyFactoryQuoteBrief | null)[]
+  const quoteSlots = [...items, ...Array(Math.max(0, 9 - items.length)).fill(null)].slice(0, 9) as (JourneyFactoryQuoteBrief | null)[]
   const reason = round.price_analysis.comparable
     ? null
     : round.price_analysis.reason === "mismatch"
@@ -793,6 +793,8 @@ function SecondRoundExcelBlock({
       wordBreak: "break-word",
     }}>{content}</td>
   )
+  const quoteCell = (content: ReactNode, opts: { colSpan?: number; header?: boolean; align?: "center" | "right" | "left"; muted?: boolean; strong?: boolean } = {}) =>
+    cell(content, { ...opts, height: opts.header ? 30 : 26 })
   const input = (name: keyof QuoteItemUpdateBody, precision = 4) => (
     <Form.Item noStyle name={name}>
       <InputNumber size="small" controls={false} min={0} precision={precision} style={{ width: "100%" }} />
@@ -818,28 +820,28 @@ function SecondRoundExcelBlock({
             {cell("—", { colSpan: 9, align: "left", muted: true })}
           </tr>
           <tr>
-            {cell("工厂名称", { header: true })}
-            {quoteSlots.map((it, idx) => <Fragment key={`second-name-${it?.id ?? idx}`}>{cell(dash(it?.factory_name), { colSpan: 3, muted: !it })}</Fragment>)}
+            {quoteCell("工厂名称", { header: true })}
+            {quoteSlots.map((it, idx) => <Fragment key={`second-name-${it?.id ?? idx}`}>{quoteCell(dash(it?.factory_name), { muted: !it })}</Fragment>)}
           </tr>
           <tr>
-            {cell("工厂价格", { header: true })}
-            {quoteSlots.map((it, idx) => <Fragment key={`second-price-${it?.id ?? idx}`}>{cell(priceWithUnit(it?.factory_price, it?.currency, it?.price_unit), { colSpan: 3, align: "right", muted: !it })}</Fragment>)}
+            {quoteCell("工厂价格", { header: true })}
+            {quoteSlots.map((it, idx) => <Fragment key={`second-price-${it?.id ?? idx}`}>{quoteCell(it ? money(it.factory_price) : "—", { align: "right", muted: !it })}</Fragment>)}
           </tr>
           <tr>
-            {cell("币种", { header: true })}
-            {quoteSlots.map((it, idx) => <Fragment key={`second-currency-${it?.id ?? idx}`}>{cell(dash(it?.currency), { colSpan: 3, muted: !it })}</Fragment>)}
+            {quoteCell("币种", { header: true })}
+            {quoteSlots.map((it, idx) => <Fragment key={`second-currency-${it?.id ?? idx}`}>{quoteCell(dash(it?.currency), { muted: !it })}</Fragment>)}
           </tr>
           <tr>
-            {cell("同工厂价格变动比率", { header: true })}
-            {quoteSlots.map((it, idx) => <Fragment key={`second-change-${it?.id ?? idx}`}>{cell(it?.factory_name ? ratioPct((it.factory_price != null && firstRoundByFactory.get(factoryNameKey(it.factory_name))?.factory_price ? it.factory_price / firstRoundByFactory.get(factoryNameKey(it.factory_name))!.factory_price! - 1 : null)) : "—", { colSpan: 3, strong: !!it })}</Fragment>)}
+            {quoteCell("同工厂价格变动比率", { header: true })}
+            {quoteSlots.map((it, idx) => <Fragment key={`second-change-${it?.id ?? idx}`}>{quoteCell(it?.factory_name ? ratioPct((it.factory_price != null && firstRoundByFactory.get(factoryNameKey(it.factory_name))?.factory_price ? it.factory_price / firstRoundByFactory.get(factoryNameKey(it.factory_name))!.factory_price! - 1 : null)) : "—", { strong: !!it, muted: !it })}</Fragment>)}
           </tr>
           <tr>
-            {cell("各个工厂价格比对情况", { header: true })}
-            {quoteSlots.map((it, idx) => <Fragment key={`second-rank-${it?.id ?? idx}`}>{cell(it ? quoteRankTag(quoteRankLabel(it, round.price_analysis)) : quoteRankTag("—"), { colSpan: 3, muted: !it })}</Fragment>)}
+            {quoteCell("各个工厂价格比对情况", { header: true })}
+            {quoteSlots.map((it, idx) => <Fragment key={`second-rank-${it?.id ?? idx}`}>{quoteCell(it ? quoteRankTag(quoteRankLabel(it, round.price_analysis)) : quoteRankTag("—"), { muted: !it })}</Fragment>)}
           </tr>
           <tr>
-            {cell("各个工厂价格相差比率", { header: true })}
-            {quoteSlots.map((it, idx) => <Fragment key={`second-gap-${it?.id ?? idx}`}>{cell(it ? quoteGapRatio(it, round.price_analysis) : "—", { colSpan: 3, muted: !it })}</Fragment>)}
+            {quoteCell("各个工厂价格相差比率", { header: true })}
+            {quoteSlots.map((it, idx) => <Fragment key={`second-gap-${it?.id ?? idx}`}>{quoteCell(it ? quoteGapRatio(it, round.price_analysis) : "—", { muted: !it })}</Fragment>)}
           </tr>
           {reason && <tr>{cell(reason, { colSpan: 10, muted: true })}</tr>}
           <tr>
