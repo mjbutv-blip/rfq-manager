@@ -9,10 +9,11 @@
 import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Alert, Button, Form, InputNumber, Select, Space, Spin, Tag, Typography, message } from "antd"
+import { Alert, Button, Drawer, Form, InputNumber, Select, Space, Spin, Table, Tag, Typography, message } from "antd"
 import { ArrowLeftOutlined, CalculatorOutlined, PlusOutlined, SaveOutlined } from "@ant-design/icons"
 
 import { analyzeFirstQuoteRound, createFirstRoundQuoteItem, fetchInquiryJourney, updateQuoteItem, type QuoteItemUpdateBody } from "@/api/inquiry_journey"
+import { fetchInquiryStyleItems } from "@/api/inquiry_items"
 import type {
   JourneyFactoryQuoteBrief,
   JourneyFirstRound,
@@ -22,6 +23,7 @@ import type {
   JourneyPriceAnalysis,
   JourneyRound,
 } from "@/types/inquiry_journey"
+import type { InquiryStyleItem } from "@/types/inquiry_style_item"
 
 const { Text } = Typography
 
@@ -633,10 +635,17 @@ function AiAnalysisHints({ analysis }: { analysis: JourneyFirstRoundAnalysisBund
 function JourneyTopSummary({
   inquiry,
   firstRound,
+  onOpenStyleItems,
 }: {
   inquiry: InquiryJourney["inquiry"]
   firstRound: JourneyFirstRound
+  onOpenStyleItems: () => void
 }) {
+  const styleCountValue = inquiry.style_count > 0 ? (
+    <Button type="link" size="small" onClick={onOpenStyleItems} style={{ padding: 0, height: "auto", fontWeight: 700 }}>
+      {inquiry.style_count}
+    </Button>
+  ) : "—"
   const fields: ExcelField[] = [
     { label: "收到客人资料时间", value: dash(firstRound.quote_item?.material_received_date ?? inquiry.inquiry_date) },
     { label: "客户代码", value: dash(inquiry.customer_code) },
@@ -647,12 +656,80 @@ function JourneyTopSummary({
     { label: "图片", value: "—" },
     { label: "品类", value: dash(inquiry.product_category) },
     { label: "品名", value: dash(inquiry.style_count > 1 ? "多款式" : inquiry.product_name) },
+    { label: "款式数量", value: styleCountValue, highlight: inquiry.style_count > 1 },
     { label: "订单状态", value: dash(inquiry.order_status) },
   ]
   return (
     <div style={{ background: "#fff" }}>
       <FieldGrid fields={fields} />
     </div>
+  )
+}
+
+function StyleItemsDrawer({
+  inquiryId,
+  open,
+  onClose,
+}: {
+  inquiryId: string
+  open: boolean
+  onClose: () => void
+}) {
+  const { data = [], isFetching, isError, error } = useQuery({
+    queryKey: ["inquiry-style-items", inquiryId],
+    queryFn: () => fetchInquiryStyleItems(inquiryId),
+    enabled: open && !!inquiryId,
+  })
+
+  const columns = [
+    { title: "款号", dataIndex: "style_no", width: 90, render: (v: string | null) => dash(v) },
+    { title: "品名", dataIndex: "product_name", width: 160, render: (v: string | null) => dash(v) },
+    { title: "产品大类", dataIndex: "product_category", width: 90, render: (v: string | null) => dash(v) },
+    { title: "系列", dataIndex: "series_name", width: 120, render: (v: string | null) => dash(v) },
+    { title: "数量", dataIndex: "quantity", width: 90, align: "right" as const, render: (v: number | null) => v == null ? "—" : v.toLocaleString() },
+    { title: "尺码范围", dataIndex: "size_range", width: 120, render: (v: string | null, row: InquiryStyleItem) => (
+      <Space size={4} wrap>
+        {v ? <Tag>{v}</Tag> : null}
+        {row.sizes.slice(0, 4).map(s => <Tag key={s.id} color={s.is_special_size ? "gold" : "default"}>{s.size_code}</Tag>)}
+        {row.sizes.length > 4 && <Tag>+{row.sizes.length - 4}</Tag>}
+        {!v && row.sizes.length === 0 ? "—" : null}
+      </Space>
+    ) },
+    { title: "工艺标签", key: "processes", width: 180, render: (_: unknown, row: InquiryStyleItem) => (
+      row.processes.length > 0 ? (
+        <Space size={4} wrap>
+          {row.processes.slice(0, 5).map(p => <Tag key={p.id} color={p.is_special ? "purple" : "blue"}>{p.process_tag}</Tag>)}
+          {row.processes.length > 5 && <Tag>+{row.processes.length - 5}</Tag>}
+        </Space>
+      ) : "—"
+    ) },
+    { title: "报价单填报人", dataIndex: "quote_prepared_by", width: 110, render: (v: string | null) => dash(v) },
+    { title: "备注", dataIndex: "remark", width: 180, render: (v: string | null) => dash(v) },
+  ]
+
+  return (
+    <Drawer
+      title={`款式明细（${data.length}）`}
+      open={open}
+      onClose={onClose}
+      width={980}
+      destroyOnClose
+    >
+      {isError ? (
+        <Alert type="error" showIcon message="款式明细加载失败" description={(error as Error)?.message ?? "请求失败"} />
+      ) : (
+        <Table<InquiryStyleItem>
+          rowKey="id"
+          size="small"
+          bordered
+          loading={isFetching}
+          columns={columns}
+          dataSource={data}
+          pagination={false}
+          scroll={{ x: 1140 }}
+        />
+      )}
+    </Drawer>
   )
 }
 
@@ -993,6 +1070,7 @@ export default function InquiryJourneyPage() {
   const queryClient = useQueryClient()
   const [msgApi, ctx] = message.useMessage()
   const [analysisOverride, setAnalysisOverride] = useState<JourneyFirstRoundAnalysisBundle | null>(null)
+  const [styleItemsOpen, setStyleItemsOpen] = useState(false)
   const [pageScale, setPageScale] = useState<number>(() => {
     const saved = Number(localStorage.getItem(JOURNEY_SCALE_KEY))
     return JOURNEY_SCALE_OPTIONS.some(opt => opt.value === saved) ? saved : 1
@@ -1056,7 +1134,11 @@ export default function InquiryJourneyPage() {
 
       <div style={scaledContentStyle}>
         <div>
-          <JourneyTopSummary inquiry={inquiry} firstRound={first_round} />
+          <JourneyTopSummary
+            inquiry={inquiry}
+            firstRound={first_round}
+            onOpenStyleItems={() => setStyleItemsOpen(true)}
+          />
 
           {/* 工厂报价轮次（核心区域） */}
           <div style={{ marginTop: 16 }}>
@@ -1101,6 +1183,11 @@ export default function InquiryJourneyPage() {
 
         </div>
       </div>
+      <StyleItemsDrawer
+        inquiryId={id!}
+        open={styleItemsOpen}
+        onClose={() => setStyleItemsOpen(false)}
+      />
     </div>
   )
 }
