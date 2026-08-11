@@ -19,6 +19,7 @@ import type {
   JourneyFirstRound,
   JourneyFirstRoundAnalysisBundle,
   JourneyFirstRoundFactoryAnalysis,
+  JourneyHistoricalPriceReference,
   InquiryJourney,
   JourneyPriceAnalysis,
   JourneyRound,
@@ -575,28 +576,7 @@ function FirstRoundExcelSheet({
           {!canEdit && <Text type="secondary">当前账号只读，不能保存修改。</Text>}
         </Space>
       </Form>
-      {showSamples && historical.samples.length > 0 && (
-        <div style={{ marginTop: 8, border: "1px solid #d9d9d9", padding: 8, background: "#fff" }}>
-          <Text type="secondary" style={{ display: "block", marginBottom: 6 }}>历史样本明细</Text>
-          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 12 }}>
-            <tbody>
-              <tr>{["客人代码", "询单号", "品类", "品名", "数量", "工厂", "价格", "订单状态"].map(h => cell(h, { header: true }))}</tr>
-              {historical.samples.slice(0, 8).map(s => (
-                <tr key={`${s.inquiry_id}-${s.factory_name}-${s.factory_price}`}>
-                  {cell(dash(s.customer_code))}
-                  {cell(dash(s.inquiry_no))}
-                  {cell(dash(s.product_category))}
-                  {cell(dash(s.product_name))}
-                  {cell("—")}
-                  {cell(dash(s.factory_name))}
-                  {cell(priceWithUnit(s.factory_price, s.currency, s.price_unit))}
-                  {cell(dash(s.order_status))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {showSamples && historical.samples.length > 0 && <HistoricalSamplesTable historical={historical} />}
       <AnalysisAlerts messages={[...factoryMessages, ...target.messages]} />
       {advice?.triggered && <AnalysisAlerts messages={advice.messages} />}
       <AiAnalysisHints analysis={analysis} />
@@ -728,6 +708,46 @@ function StyleItemsDrawer({
   )
 }
 
+function HistoricalSamplesTable({ historical }: { historical: JourneyHistoricalPriceReference }) {
+  const sampleCell = (content: ReactNode, opts: { header?: boolean; align?: "center" | "right" | "left"; strong?: boolean } = {}) => (
+    <td style={{
+      border: "1px solid #d9d9d9",
+      background: opts.header ? "#f0f5ff" : "#fff",
+      fontWeight: opts.header || opts.strong ? 700 : 400,
+      textAlign: opts.align ?? "center",
+      verticalAlign: "middle",
+      padding: "5px 6px",
+      lineHeight: 1.2,
+      wordBreak: "break-word",
+    }}>
+      {content}
+    </td>
+  )
+
+  return (
+    <div style={{ marginTop: 8, border: "1px solid #d9d9d9", padding: 8, background: "#fff" }}>
+      <Text type="secondary" style={{ display: "block", marginBottom: 6 }}>历史样本明细</Text>
+      <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 12 }}>
+        <tbody>
+          <tr>{["客人代码", "询单号", "品类", "品名", "数量", "工厂", "价格", "订单状态"].map(h => sampleCell(h, { header: true }))}</tr>
+          {historical.samples.slice(0, 8).map(s => (
+            <tr key={`${s.inquiry_id}-${s.factory_name}-${s.factory_price}-${s.quote_round}`}>
+              {sampleCell(dash(s.customer_code))}
+              {sampleCell(dash(s.inquiry_no))}
+              {sampleCell(dash(s.product_category))}
+              {sampleCell(dash(s.product_name))}
+              {sampleCell("—")}
+              {sampleCell(dash(s.factory_name))}
+              {sampleCell(priceWithUnit(s.factory_price, s.currency, s.price_unit))}
+              {sampleCell(dash(s.order_status))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function FirstRoundBlock({
   firstRound,
   inquiryId,
@@ -788,6 +808,7 @@ function SecondRoundExcelBlock({
   const [form] = Form.useForm()
   const [msgApi, ctx] = message.useMessage()
   const queryClient = useQueryClient()
+  const [showSamples, setShowSamples] = useState(false)
   const items = roundQuotes(round)
   const q = round.quote_item ?? null
   const base = firstRound.quote_item
@@ -952,7 +973,12 @@ function SecondRoundExcelBlock({
           </tr>
           <tr>
             {["佣金", "报价汇率", "净利润值", "客人价格", "比上次给客人报价差值", "比上次给客人报价比率"].map(h => cell(h, { header: true }))}
-            {cell(historical?.sample_count ?? "—", { strong: !!historical?.sample_count })}
+            {cell(
+              historical && historical.samples.length > 0
+                ? <Button type="link" size="small" onClick={() => setShowSamples(v => !v)}>{historical.sample_count}</Button>
+                : historical?.sample_count ?? "—",
+              { strong: !!historical?.sample_count },
+            )}
             {cell(priceWithUnit(historical?.historical_lowest_price, historical?.currency, historical?.price_unit))}
             {cell(priceWithUnit(historical?.historical_highest_price, historical?.currency, historical?.price_unit))}
             {cell(priceWithUnit(historical?.historical_average_price, historical?.currency, historical?.price_unit))}
@@ -1030,6 +1056,7 @@ function SecondRoundExcelBlock({
           {!canEdit && <Text type="secondary">当前账号只读，不能保存修改。</Text>}
         </Space>
       </Form>
+      {showSamples && historical?.samples.length ? <HistoricalSamplesTable historical={historical} /> : null}
     </div>
   )
 }
