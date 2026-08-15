@@ -663,14 +663,9 @@ function StyleItemsDrawer({
   })
 
   const columns = [
-    { title: "款号", dataIndex: "style_no", width: 90, render: (v: string | null) => dash(v) },
-    { title: "品名", dataIndex: "product_name", width: 160, render: (v: string | null) => dash(v) },
-    { title: "产品大类", dataIndex: "product_category", width: 90, render: (v: string | null) => dash(v) },
-    { title: "系列", dataIndex: "series_name", width: 120, render: (v: string | null) => dash(v) },
-    { title: "数量", dataIndex: "quantity", width: 90, align: "right" as const, render: (v: number | null) => v == null ? "—" : v.toLocaleString() },
-    { title: "面料/材质", dataIndex: "fabric_quality", width: 130, render: (v: string | null) => dash(v) },
-    { title: "颜色/印花", dataIndex: "color_print", width: 130, render: (v: string | null) => dash(v) },
-    { title: "尺码范围", dataIndex: "size_range", width: 120, render: (v: string | null, row: InquiryStyleItem) => (
+    { title: "面料/材质", dataIndex: "fabric_quality", width: 180, render: (v: string | null) => dash(v) },
+    { title: "印花/颜色", dataIndex: "color_print", width: 180, render: (v: string | null) => dash(v) },
+    { title: "尺码范围", dataIndex: "size_range", width: 220, render: (v: string | null, row: InquiryStyleItem) => (
       <Space size={4} wrap>
         {v ? <Tag>{v}</Tag> : null}
         {row.sizes.slice(0, 4).map(s => <Tag key={s.id} color={s.is_special_size ? "gold" : "default"}>{s.size_code}</Tag>)}
@@ -678,9 +673,6 @@ function StyleItemsDrawer({
         {!v && row.sizes.length === 0 ? "—" : null}
       </Space>
     ) },
-    { title: "报价状态", dataIndex: "quote_status", width: 90, render: (v: string | null) => dash(v) },
-    { title: "订单状态", dataIndex: "order_status", width: 90, render: (v: string | null) => dash(v) },
-    { title: "报价单填报人", dataIndex: "quote_prepared_by", width: 110, render: (v: string | null) => dash(v) },
   ]
 
   return (
@@ -688,7 +680,7 @@ function StyleItemsDrawer({
       title={`款式明细（${data.length}）`}
       open={open}
       onClose={onClose}
-      width={980}
+      width={720}
       destroyOnClose
     >
       {isError ? (
@@ -702,7 +694,7 @@ function StyleItemsDrawer({
           columns={columns}
           dataSource={data}
           pagination={false}
-          scroll={{ x: 1220 }}
+          scroll={{ x: 580 }}
         />
       )}
     </Drawer>
