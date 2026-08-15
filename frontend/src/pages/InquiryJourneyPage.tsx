@@ -486,7 +486,8 @@ function FirstRoundExcelSheet({
               {["订单数量", "每卡件数", "算价格数量", "杂费", "包含验货，验厂，海运/空运费（客人要求我们报价需要包含运费的情况）其他费用"].map(h => cell(h, { height: 54 }))}
               {cell("选用工厂价位情况", { height: 54 })}
               {cell("选用工厂同最低工厂百分比", { height: 54 })}
-              {cell("选用工厂风险等级", { colSpan: 3, height: 54 })}
+              {cell("选用工厂风险等级", { height: 54 })}
+              {cell("选用工厂风险原因", { colSpan: 2, height: 54 })}
             </tr>
             <tr>
               {cell(input("order_quantity", 0))}
@@ -496,7 +497,8 @@ function FirstRoundExcelSheet({
               {cell(input("included_other_fee_cny"))}
               {cell(selectedRankText, { strong: fa.selected_factory_rank != null })}
               {cell(ratioPct(fa.selected_factory_gap_pct), { strong: fa.selected_factory_gap_pct != null })}
-              {cell(dash(risk.risk_level), { colSpan: 3, strong: risk.risk_level === "high" || risk.risk_level === "blocked" })}
+              {cell(dash(risk.risk_level), { strong: risk.risk_level === "high" || risk.risk_level === "blocked" })}
+              {cell(dash(risk.risk_notes), { colSpan: 2, align: "left" })}
             </tr>
             <tr>
               {["测试费", "分批走货", "目的港数量", "港杂费", "佣金"].map(h => cell(h))}
@@ -538,8 +540,7 @@ function FirstRoundExcelSheet({
               {cell(input("current_exchange_rate"))}
               {cell(money(q?.gross_profit_cny), { colSpan: 2, strong: true })}
               {cell(money(q?.trade_amount_usd), { colSpan: 2, strong: true })}
-              {cell("选用工厂风险原因")}
-              {cell(dash(risk.risk_notes), { colSpan: 4, align: "left" })}
+              {cell("", { colSpan: 5 })}
             </tr>
             <tr>
               {cell("目标价")}
@@ -946,7 +947,8 @@ function SecondRoundExcelBlock({
             {cell("包含验货，验厂，海运/空运费其他费用", { colSpan: 2, header: true })}
             {cell("选用工厂价位情况", { header: true })}
             {cell("选用工厂同最低工厂百分比", { header: true })}
-            {cell("选用工厂风险等级", { colSpan: 2, header: true })}
+            {cell("选用工厂风险等级", { header: true })}
+            {cell("选用工厂风险原因", { header: true })}
           </tr>
           <tr>
             {cell(input("order_quantity", 0))}
@@ -956,7 +958,8 @@ function SecondRoundExcelBlock({
             {cell(input("included_other_fee_cny"), { colSpan: 2 })}
             {cell(selectedRankText, { strong: fa?.selected_factory_rank != null })}
             {cell(ratioPct(fa?.selected_factory_gap_pct), { strong: fa?.selected_factory_gap_pct != null })}
-            {cell(dash(risk?.risk_level), { colSpan: 2, strong: risk?.risk_level === "high" || risk?.risk_level === "blocked" })}
+            {cell(dash(risk?.risk_level), { strong: risk?.risk_level === "high" || risk?.risk_level === "blocked" })}
+            {cell(dash(risk?.risk_notes), { align: "left" })}
           </tr>
           <tr>
             {["分批走货", "目的港数量", "港杂费", "测试费", "选取工厂", "选取工厂价格"].map(h => cell(h, { header: true }))}
