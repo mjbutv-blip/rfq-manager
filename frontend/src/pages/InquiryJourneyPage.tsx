@@ -939,27 +939,27 @@ function SecondRoundExcelBlock({
           </tr>
           {reason && <tr>{cell(reason, { colSpan: 10, muted: true })}</tr>}
           <tr>
-            {cell("价格计算", { colSpan: 6, section: true, height: 36 })}
-            {cell("工厂辅助判断区", { colSpan: 4, section: true, height: 36 })}
+            {cell("价格计算", { colSpan: 5, section: true, height: 36 })}
+            {cell("工厂辅助判断区", { colSpan: 5, section: true, height: 36 })}
           </tr>
           <tr>
             {["订单数量", "每卡件数", "算价格数量", "杂费"].map(h => cell(h, { header: true }))}
-            {cell("包含验货，验厂，海运/空运费其他费用", { colSpan: 2, header: true })}
+            {cell("包含验货，验厂，海运/空运费其他费用", { header: true })}
             {cell("选用工厂价位情况", { header: true })}
             {cell("选用工厂同最低工厂百分比", { header: true })}
             {cell("选用工厂风险等级", { header: true })}
-            {cell("选用工厂风险原因", { header: true })}
+            {cell("选用工厂风险原因", { colSpan: 2, header: true })}
           </tr>
           <tr>
             {cell(input("order_quantity", 0))}
             {cell(input("pieces_per_card", 0))}
             {cell(input("calc_quantity", 0))}
             {cell(input("misc_fee_cny"))}
-            {cell(input("included_other_fee_cny"), { colSpan: 2 })}
+            {cell(input("included_other_fee_cny"))}
             {cell(selectedRankText, { strong: fa?.selected_factory_rank != null })}
             {cell(ratioPct(fa?.selected_factory_gap_pct), { strong: fa?.selected_factory_gap_pct != null })}
             {cell(dash(risk?.risk_level), { strong: risk?.risk_level === "high" || risk?.risk_level === "blocked" })}
-            {cell(dash(risk?.risk_notes), { align: "left" })}
+            {cell(dash(risk?.risk_notes), { colSpan: 2, align: "left" })}
           </tr>
           <tr>
             {["分批走货", "目的港数量", "港杂费", "测试费", "选取工厂", "选取工厂价格"].map(h => cell(h, { header: true }))}
