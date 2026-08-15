@@ -577,7 +577,11 @@ function FirstRoundExcelSheet({
           {!canEdit && <Text type="secondary">当前账号只读，不能保存修改。</Text>}
         </Space>
       </Form>
-      {showSamples && historical.samples.length > 0 && <HistoricalSamplesTable historical={historical} />}
+      <HistoricalSamplesDrawer
+        historical={historical}
+        open={showSamples}
+        onClose={() => setShowSamples(false)}
+      />
       <AnalysisAlerts messages={[...factoryMessages, ...target.messages]} />
       {advice?.triggered && <AnalysisAlerts messages={advice.messages} />}
       <AiAnalysisHints analysis={analysis} />
@@ -718,8 +722,7 @@ function HistoricalSamplesTable({ historical }: { historical: JourneyHistoricalP
   )
 
   return (
-    <div style={{ marginTop: 8, border: "1px solid #d9d9d9", padding: 8, background: "#fff" }}>
-      <Text type="secondary" style={{ display: "block", marginBottom: 6 }}>历史样本明细</Text>
+    <div style={{ border: "1px solid #d9d9d9", padding: 8, background: "#fff" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 12 }}>
         <tbody>
           <tr>{["客人代码", "询单号", "品类", "品名", "数量", "工厂", "价格", "订单状态"].map(h => sampleCell(h, { header: true }))}</tr>
@@ -738,6 +741,32 @@ function HistoricalSamplesTable({ historical }: { historical: JourneyHistoricalP
         </tbody>
       </table>
     </div>
+  )
+}
+
+function HistoricalSamplesDrawer({
+  historical,
+  open,
+  onClose,
+}: {
+  historical: JourneyHistoricalPriceReference | null | undefined
+  open: boolean
+  onClose: () => void
+}) {
+  return (
+    <Drawer
+      title={`历史样本明细（${historical?.sample_count ?? 0}）`}
+      open={open}
+      onClose={onClose}
+      width={860}
+      destroyOnClose
+    >
+      {historical?.samples.length ? (
+        <HistoricalSamplesTable historical={historical} />
+      ) : (
+        <Text type="secondary">暂无历史样本明细。</Text>
+      )}
+    </Drawer>
   )
 }
 
@@ -1051,7 +1080,11 @@ function SecondRoundExcelBlock({
           {!canEdit && <Text type="secondary">当前账号只读，不能保存修改。</Text>}
         </Space>
       </Form>
-      {showSamples && historical?.samples.length ? <HistoricalSamplesTable historical={historical} /> : null}
+      <HistoricalSamplesDrawer
+        historical={historical}
+        open={showSamples}
+        onClose={() => setShowSamples(false)}
+      />
     </div>
   )
 }
