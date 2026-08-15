@@ -276,6 +276,7 @@ function AppLayout() {
           <Route path="/order-series/:seriesId" element={<OrderSeriesDetailPage />} />
           <Route path="/order-groups" element={<OrderGroupListPage />} />
           <Route path="/order-groups/demo" element={<OrderGroupDemoPage />} />
+          <Route path="/order-groups/combined" element={<OrderGroupDetailPage />} />
           <Route path="/order-groups/:groupId" element={<OrderGroupDetailPage />} />
           <Route path="/analytics-center" element={<AnalyticsCenterPage />} />
           <Route path="/customer-conversion-analysis" element={<CustomerConversionAnalysisPage />} />

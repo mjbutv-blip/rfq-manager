@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useState } from "react"
 import { Button, Card, Popconfirm, Space, Table, Tag, Typography, message } from "antd"
 import type { ColumnsType } from "antd/es/table"
 import { useNavigate } from "react-router-dom"
@@ -15,6 +16,7 @@ function val(v: unknown) {
 export default function OrderGroupListPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([])
   const { data, isLoading } = useQuery({ queryKey: ["order-groups"], queryFn: fetchOrderGroups })
   const cancelMutation = useMutation({
     mutationFn: cancelOrderGroup,
@@ -58,12 +60,25 @@ export default function OrderGroupListPage() {
       <Card>
         <Space style={{ width: "100%", justifyContent: "space-between" }} wrap>
           <Text type="secondary">用于查看同一报价单系列下，被标注为“一套/一组”的多个询单整体报价、工厂组合、毛利润和风险提示。</Text>
-          <Button onClick={() => navigate("/order-groups/demo")}>查看示例订单组</Button>
+          <Space wrap>
+            <Button
+              type="primary"
+              disabled={selectedGroupIds.length === 0}
+              onClick={() => navigate(`/order-groups/combined?ids=${selectedGroupIds.join(",")}`)}
+            >
+              合并分析{selectedGroupIds.length ? `（${selectedGroupIds.length}组）` : ""}
+            </Button>
+            <Button onClick={() => navigate("/order-groups/demo")}>查看示例订单组</Button>
+          </Space>
         </Space>
         <Table
           style={{ marginTop: 16 }}
           rowKey="id"
           loading={isLoading}
+          rowSelection={{
+            selectedRowKeys: selectedGroupIds,
+            onChange: keys => setSelectedGroupIds(keys.map(String)),
+          }}
           columns={columns}
           dataSource={data?.items ?? []}
           scroll={{ x: 1600 }}

@@ -63,6 +63,7 @@ export interface OrderGroupInquiryAnalysis {
 }
 
 export interface OrderGroupRoundPriceRow {
+  quote_item_id: string | null
   inquiry_id: string
   series: string | null
   inquiry_no: string

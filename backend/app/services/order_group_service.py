@@ -195,6 +195,7 @@ def _round_price_table(
         trade_change = _change(trade_amount, previous.get("trade_amount_usd"))
 
         rows.append({
+            "quote_item_id": str(qitem.id) if qitem else None,
             "inquiry_id": str(inq.id),
             "series": inq.series_name or inq.product_category or inq.group_name,
             "inquiry_no": inq.inquiry_no,
@@ -475,6 +476,52 @@ async def get_order_group_detail(db: AsyncSession, group_id: uuid.UUID, user) ->
             "group_status": group.group_status,
             "notes": group.notes,
             "created_at": group.created_at.isoformat() if group.created_at else None,
+        },
+        "items": [
+            {
+                "id": str(item.id),
+                "inquiry_id": str(item.inquiry_id),
+                "inquiry_no": item.inquiry_no,
+                "source_sheet": item.source_sheet,
+                "source_row": item.source_row,
+                "sort_order": item.sort_order,
+            }
+            for item in items
+        ],
+        "analysis": build_order_group_analysis(inquiries, quote_items, factory_quotes),
+    }
+
+
+async def get_combined_order_group_detail(db: AsyncSession, group_ids: list[uuid.UUID], user) -> dict[str, Any]:
+    groups: list[OrderGroup] = []
+    items: list[OrderGroupItem] = []
+    inquiries_by_id: dict[uuid.UUID, Inquiry] = {}
+    for group_id in group_ids:
+        group, group_items, group_inquiries = await load_order_group_or_403(db, group_id, user)
+        groups.append(group)
+        items.extend(group_items)
+        for inq in group_inquiries:
+            inquiries_by_id[inq.id] = inq
+
+    inquiries = list(inquiries_by_id.values())
+    inquiry_ids = [inq.id for inq in inquiries]
+    quote_items = (await db.execute(select(QuoteItem).where(QuoteItem.inquiry_id.in_(inquiry_ids)))).scalars().all() if inquiry_ids else []
+    factory_quotes = (await db.execute(select(FactoryQuoteRecord).where(FactoryQuoteRecord.inquiry_id.in_(inquiry_ids)))).scalars().all() if inquiry_ids else []
+    source_files = sorted({g.source_file_name for g in groups if g.source_file_name})
+    group_names = sorted({g.group_name for g in groups if g.group_name})
+    return {
+        "group": {
+            "id": "combined",
+            "group_code": f"COMBINED-{len(groups)}",
+            "group_name": " + ".join(group_names) or f"{len(groups)} 个订单组",
+            "source_file_name": "，".join(source_files) if source_files else None,
+            "source_sheet": None,
+            "source_start_row": None,
+            "source_end_row": None,
+            "customer_code": next((g.customer_code for g in groups if g.customer_code), None),
+            "group_status": "active",
+            "notes": f"手动合并分析：{len(groups)} 个订单组",
+            "created_at": None,
         },
         "items": [
             {

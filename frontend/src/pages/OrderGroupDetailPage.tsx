@@ -1,9 +1,10 @@
-import { useQuery } from "@tanstack/react-query"
-import { Alert, Button, Card, Descriptions, Divider, Space, Table, Tag, Typography } from "antd"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Alert, Button, Card, Descriptions, Divider, InputNumber, Space, Table, Tag, Typography, message } from "antd"
 import type { ColumnsType } from "antd/es/table"
-import { useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 
-import { fetchOrderGroupDetail } from "@/api/order_groups"
+import { createFirstRoundQuoteItem, updateQuoteItem } from "@/api/inquiry_journey"
+import { fetchCombinedOrderGroupDetail, fetchOrderGroupDetail } from "@/api/order_groups"
 import type { OrderGroupInquiryAnalysis, OrderGroupRoundPriceRow, OrderGroupRoundPriceTable, OrderGroupScenario } from "@/types/order_group"
 
 const { Title, Text } = Typography
@@ -42,77 +43,27 @@ const tableHeaderStyle = {
   fontWeight: 600,
 } as const
 
-function groupCell(value: React.ReactNode, index: number, rowCount: number) {
-  return {
-    children: value,
-    props: { rowSpan: index === 0 ? Math.max(rowCount, 1) : 0 },
-  }
+function CompactCell({ label, value, strong }: { label: string; value: React.ReactNode; strong?: boolean }) {
+  return (
+    <div style={{ border: "1px solid #e5e7eb", padding: "6px 8px", minHeight: 48, background: "#fff" }}>
+      <div style={{ fontSize: 12, color: "#667085", marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: strong ? 700 : 500, wordBreak: "break-word" }}>{value}</div>
+    </div>
+  )
 }
 
-function PriceRoundTable({ table, onOpenInquiry }: { table: OrderGroupRoundPriceTable; onOpenInquiry: (inquiryId: string) => void }) {
+function PriceRoundTable({
+  table,
+  onOpenInquiry,
+  onProfitChange,
+  savingKey,
+}: {
+  table: OrderGroupRoundPriceTable
+  onOpenInquiry: (inquiryId: string) => void
+  onProfitChange: (row: OrderGroupRoundPriceRow, quoteRound: number, value: number | null) => void
+  savingKey: string | null
+}) {
   const rows = table.rows
-  const rowCount = rows.length
-  const commonColumns: ColumnsType<OrderGroupRoundPriceRow> = [
-    { title: "系列", dataIndex: "series", width: 90, fixed: "left", render: val },
-    { title: "询单号", dataIndex: "inquiry_no", width: 120, fixed: "left", render: (v, r) => <Button type="link" size="small" onClick={() => onOpenInquiry(r.inquiry_id)}>{v}</Button> },
-    { title: "订单号", dataIndex: "customer_order_no", width: 130, render: val },
-    { title: "图片", dataIndex: "image", width: 80, align: "center", render: val },
-    { title: "数量", dataIndex: "quantity", width: 100, align: "right", render: val },
-    { title: "选用工厂", dataIndex: "selected_factory", width: 130, render: val },
-  ]
-  const firstRoundColumns: ColumnsType<OrderGroupRoundPriceRow> = [
-    ...commonColumns,
-    { title: "报价利润值", dataIndex: "profit_value", width: 110, align: "right", render: money },
-    { title: "客人价格", dataIndex: "customer_price_usd", width: 110, align: "right", render: money },
-    { title: "毛利润额", dataIndex: "gross_profit_cny", width: 120, align: "right", render: money },
-    {
-      title: "整组毛利润额",
-      width: 140,
-      align: "right",
-      render: (_, __, index) => groupCell(<strong>{money(table.totals.group_gross_profit_cny)}</strong>, index, rowCount),
-    },
-    { title: "贸易额", dataIndex: "trade_amount_usd", width: 120, align: "right", render: money },
-    {
-      title: "整组贸易额",
-      width: 140,
-      align: "right",
-      render: (_, __, index) => groupCell(<strong>{money(table.totals.group_trade_amount_usd)}</strong>, index, rowCount),
-    },
-  ]
-  const laterRoundColumns: ColumnsType<OrderGroupRoundPriceRow> = [
-    ...commonColumns,
-    { title: "净利润值", dataIndex: "profit_value", width: 110, align: "right", render: money },
-    { title: "客人价格", dataIndex: "customer_price_usd", width: 110, align: "right", render: money },
-    { title: "客人价格变动差价", dataIndex: "customer_price_change_amount", width: 150, align: "right", render: signedMoney },
-    { title: "客人价格变动比率", dataIndex: "customer_price_change_rate", width: 150, align: "right", render: pct },
-    { title: "毛利润额", dataIndex: "gross_profit_cny", width: 120, align: "right", render: money },
-    { title: "毛利润额变动情况", width: 150, align: "right", render: (_, r) => changeText(r.gross_profit_change_amount, r.gross_profit_change_rate) },
-    {
-      title: "整组毛利润额",
-      width: 140,
-      align: "right",
-      render: (_, __, index) => groupCell(<strong>{money(table.totals.group_gross_profit_cny)}</strong>, index, rowCount),
-    },
-    {
-      title: "整组毛利润额变动情况",
-      width: 170,
-      align: "right",
-      render: (_, __, index) => groupCell(changeText(table.totals.group_gross_profit_change_amount, table.totals.group_gross_profit_change_rate), index, rowCount),
-    },
-    { title: "贸易额", dataIndex: "trade_amount_usd", width: 120, align: "right", render: money },
-    {
-      title: "整组贸易额",
-      width: 140,
-      align: "right",
-      render: (_, __, index) => groupCell(<strong>{money(table.totals.group_trade_amount_usd)}</strong>, index, rowCount),
-    },
-    {
-      title: "整组贸易额变动情况",
-      width: 170,
-      align: "right",
-      render: (_, __, index) => groupCell(changeText(table.totals.group_trade_amount_change_amount, table.totals.group_trade_amount_change_rate), index, rowCount),
-    },
-  ]
 
   return (
     <Card
@@ -121,16 +72,58 @@ function PriceRoundTable({ table, onOpenInquiry }: { table: OrderGroupRoundPrice
       styles={{ header: tableHeaderStyle, body: { padding: 0 } }}
       style={{ marginBottom: 0, overflow: "hidden", borderRadius: 0 }}
     >
-      <Table
-        bordered
-        size="small"
-        rowKey="inquiry_id"
-        columns={table.quote_round === 1 ? firstRoundColumns : laterRoundColumns}
-        dataSource={rows}
-        pagination={false}
-        scroll={{ x: table.quote_round === 1 ? 1400 : 2200 }}
-        locale={{ emptyText: `暂无第${roundName(table.quote_round)}次报价数据` }}
-      />
+      <div style={{ padding: 10, background: "#f8fafc" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8, marginBottom: 10 }}>
+          <CompactCell label="整组毛利润额" value={money(table.totals.group_gross_profit_cny)} strong />
+          <CompactCell label="整组贸易额" value={money(table.totals.group_trade_amount_usd)} strong />
+          {table.quote_round > 1 && <CompactCell label="整组毛利润额变动" value={changeText(table.totals.group_gross_profit_change_amount, table.totals.group_gross_profit_change_rate)} />}
+          {table.quote_round > 1 && <CompactCell label="整组贸易额变动" value={changeText(table.totals.group_trade_amount_change_amount, table.totals.group_trade_amount_change_rate)} />}
+        </div>
+        <Space direction="vertical" style={{ width: "100%" }} size={8}>
+          {rows.map(row => {
+            const rowKey = `${table.quote_round}:${row.inquiry_id}`
+            return (
+              <div key={rowKey} style={{ border: "1px solid #d9e2ec", background: "#fff" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(128px, 1fr))" }}>
+                  <CompactCell label="系列" value={val(row.series)} />
+                  <CompactCell label="询单号" value={<Button type="link" size="small" onClick={() => onOpenInquiry(row.inquiry_id)}>{row.inquiry_no}</Button>} strong />
+                  <CompactCell label="订单号" value={val(row.customer_order_no)} />
+                  <CompactCell label="数量" value={val(row.quantity)} />
+                  <CompactCell label="选用工厂" value={val(row.selected_factory)} />
+                  <CompactCell
+                    label={table.quote_round === 1 ? "报价利润值" : "净利润值"}
+                    value={
+                      <InputNumber
+                        size="small"
+                        controls={false}
+                        min={0}
+                        precision={2}
+                        value={row.profit_value}
+                        style={{ width: "100%" }}
+                        disabled={savingKey === rowKey}
+                        onBlur={event => {
+                          const value = event.target.value === "" ? null : Number(event.target.value)
+                          if (value !== row.profit_value) onProfitChange(row, table.quote_round, Number.isNaN(value) ? null : value)
+                        }}
+                        onPressEnter={event => {
+                          const target = event.currentTarget as HTMLInputElement
+                          const value = target.value === "" ? null : Number(target.value)
+                          if (value !== row.profit_value) onProfitChange(row, table.quote_round, Number.isNaN(value) ? null : value)
+                        }}
+                      />
+                    }
+                  />
+                  <CompactCell label="客人价格" value={money(row.customer_price_usd)} />
+                  {table.quote_round > 1 && <CompactCell label="客人价格变动" value={changeText(row.customer_price_change_amount, row.customer_price_change_rate)} />}
+                  <CompactCell label="毛利润额" value={money(row.gross_profit_cny)} strong />
+                  {table.quote_round > 1 && <CompactCell label="毛利润额变动" value={changeText(row.gross_profit_change_amount, row.gross_profit_change_rate)} />}
+                  <CompactCell label="贸易额" value={money(row.trade_amount_usd)} />
+                </div>
+              </div>
+            )
+          })}
+        </Space>
+      </div>
     </Card>
   )
 }
@@ -175,11 +168,30 @@ function groupTitle(data: { group: { group_name: string | null; source_file_name
 
 export default function OrderGroupDetailPage() {
   const { groupId } = useParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [msgApi, ctx] = message.useMessage()
+  const combinedIds = (searchParams.get("ids") ?? "").split(",").map(s => s.trim()).filter(Boolean)
+  const isCombined = !groupId || groupId === "combined"
+  const detailQueryKey = isCombined ? ["order-group-combined-detail", combinedIds] : ["order-group-detail", groupId]
   const { data, isLoading, error } = useQuery({
-    queryKey: ["order-group-detail", groupId],
-    queryFn: () => fetchOrderGroupDetail(groupId!),
-    enabled: !!groupId,
+    queryKey: detailQueryKey,
+    queryFn: () => isCombined ? fetchCombinedOrderGroupDetail(combinedIds) : fetchOrderGroupDetail(groupId!),
+    enabled: isCombined ? combinedIds.length > 0 : !!groupId,
+  })
+  const profitMutation = useMutation({
+    mutationFn: async ({ row, quoteRound, value }: { row: OrderGroupRoundPriceRow; quoteRound: number; value: number | null }) => {
+      if (row.quote_item_id) {
+        return updateQuoteItem(row.quote_item_id, { net_profit_pct: value })
+      }
+      return createFirstRoundQuoteItem(row.inquiry_id, { net_profit_pct: value }, { quoteRound })
+    },
+    onSuccess: async () => {
+      msgApi.success("利润值已更新")
+      await queryClient.invalidateQueries({ queryKey: detailQueryKey })
+    },
+    onError: err => msgApi.error((err as Error).message),
   })
 
   if (isLoading) return <div style={{ padding: 24 }}>加载中...</div>
@@ -206,6 +218,7 @@ export default function OrderGroupDetailPage() {
 
   return (
     <div style={{ padding: 24 }}>
+      {ctx}
       <Space style={{ marginBottom: 12 }}>
         <Button onClick={() => navigate("/order-groups")}>返回订单组列表</Button>
       </Space>
@@ -237,6 +250,8 @@ export default function OrderGroupDetailPage() {
               <PriceRoundTable
                 table={table}
                 onOpenInquiry={inquiryId => navigate(`/inquiry/${inquiryId}/journey`)}
+                savingKey={profitMutation.variables ? `${profitMutation.variables.quoteRound}:${profitMutation.variables.row.inquiry_id}` : null}
+                onProfitChange={(row, quoteRound, value) => profitMutation.mutate({ row, quoteRound, value })}
               />
             </div>
           ))
