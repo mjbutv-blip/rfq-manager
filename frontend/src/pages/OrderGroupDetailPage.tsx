@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Alert, Button, Card, Descriptions, Divider, InputNumber, Space, Table, Tag, Typography, message } from "antd"
+import { Alert, Button, Card, Descriptions, Divider, InputNumber, Popover, Select, Space, Table, Tag, Typography, message } from "antd"
 import type { ColumnsType } from "antd/es/table"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 
 import { createFirstRoundQuoteItem, updateQuoteItem } from "@/api/inquiry_journey"
+import type { QuoteItemUpdateBody } from "@/api/inquiry_journey"
 import { fetchCombinedOrderGroupDetail, fetchOrderGroupDetail } from "@/api/order_groups"
+import { useCurrentUser } from "@/contexts/UserContext"
 import type { OrderGroupInquiryAnalysis, OrderGroupRoundPriceRow, OrderGroupRoundPriceTable, OrderGroupScenario } from "@/types/order_group"
 
 const { Title, Text } = Typography
@@ -43,27 +45,101 @@ const tableHeaderStyle = {
   fontWeight: 600,
 } as const
 
-function CompactCell({ label, value, strong }: { label: string; value: React.ReactNode; strong?: boolean }) {
+function sumValues(rows: OrderGroupRoundPriceRow[], field: "gross_profit_cny" | "trade_amount_usd") {
+  const values = rows.map(row => row[field]).filter((value): value is number => value != null && !Number.isNaN(value))
+  return values.length ? values.reduce((sum, value) => sum + value, 0) : null
+}
+
+function sumChanges(rows: OrderGroupRoundPriceRow[], field: "gross_profit_change_amount" | "trade_amount_change_amount") {
+  const values = rows.map(row => row[field]).filter((value): value is number => value != null && !Number.isNaN(value))
+  return values.length === rows.length && values.length ? values.reduce((sum, value) => sum + value, 0) : null
+}
+
+function groupedRoundRows(rows: OrderGroupRoundPriceRow[]) {
+  const groups = new Map<string, OrderGroupRoundPriceRow[]>()
+  rows.forEach(row => {
+    const key = row.series?.trim() || "未分组"
+    groups.set(key, [...(groups.get(key) ?? []), row])
+  })
+  return [...groups.entries()].map(([series, items]) => {
+    const gross = sumValues(items, "gross_profit_cny")
+    const trade = sumValues(items, "trade_amount_usd")
+    const grossChange = sumChanges(items, "gross_profit_change_amount")
+    const tradeChange = sumChanges(items, "trade_amount_change_amount")
+    const previousGross = gross != null && grossChange != null ? gross - grossChange : null
+    const previousTrade = trade != null && tradeChange != null ? trade - tradeChange : null
+    return {
+      series,
+      items,
+      gross,
+      trade,
+      grossChange,
+      tradeChange,
+      grossChangeRate: grossChange != null && previousGross ? grossChange / previousGross : null,
+      tradeChangeRate: tradeChange != null && previousTrade ? tradeChange / previousTrade : null,
+    }
+  })
+}
+
+function InlineNumberInput({
+  value,
+  onCommit,
+  disabled,
+  min = 0,
+  precision = 2,
+}: {
+  value: number | null
+  onCommit: (value: number | null) => void
+  disabled: boolean
+  min?: number
+  precision?: number
+}) {
   return (
-    <div style={{ border: "1px solid #e5e7eb", padding: "6px 8px", minHeight: 48, background: "#fff" }}>
-      <div style={{ fontSize: 12, color: "#667085", marginBottom: 3 }}>{label}</div>
-      <div style={{ fontSize: 13, fontWeight: strong ? 700 : 500, wordBreak: "break-word" }}>{value}</div>
-    </div>
+    <InputNumber
+      key={value ?? "empty"}
+      size="small"
+      controls={false}
+      min={min}
+      precision={precision}
+      defaultValue={value ?? undefined}
+      disabled={disabled}
+      style={{ width: "100%" }}
+      onPressEnter={event => event.currentTarget.blur()}
+      onBlur={event => {
+        const next = event.target.value === "" ? null : Number(event.target.value.replace(/,/g, ""))
+        const normalized = Number.isNaN(next) ? null : next
+        if (normalized !== value) onCommit(normalized)
+      }}
+    />
   )
+}
+
+function calculationMissing(row: OrderGroupRoundPriceRow) {
+  const missing: string[] = []
+  if (!row.quantity) missing.push("数量")
+  if (row.customer_price_usd == null) missing.push("客人价格")
+  if (row.selected_factory_price_cny == null) missing.push("工厂价")
+  if (row.current_exchange_rate == null) missing.push("汇率")
+  return missing
 }
 
 function PriceRoundTable({
   table,
   onOpenInquiry,
-  onProfitChange,
+  onInputChange,
   savingKey,
+  canEdit,
 }: {
   table: OrderGroupRoundPriceTable
   onOpenInquiry: (inquiryId: string) => void
-  onProfitChange: (row: OrderGroupRoundPriceRow, quoteRound: number, value: number | null) => void
+  onInputChange: (row: OrderGroupRoundPriceRow, quoteRound: number, body: QuoteItemUpdateBody) => void
   savingKey: string | null
+  canEdit: boolean
 }) {
-  const rows = table.rows
+  const groups = groupedRoundRows(table.rows)
+  const isFirstRound = table.quote_round === 1
+  const cellStyle = { border: "1px solid #d9e2ec", padding: "7px 8px", verticalAlign: "middle", background: "#fff" } as const
+  const totalStyle = { ...cellStyle, background: "#f8fafc", fontWeight: 700 } as const
 
   return (
     <Card
@@ -72,57 +148,79 @@ function PriceRoundTable({
       styles={{ header: tableHeaderStyle, body: { padding: 0 } }}
       style={{ marginBottom: 0, overflow: "hidden", borderRadius: 0 }}
     >
-      <div style={{ padding: 10, background: "#f8fafc" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8, marginBottom: 10 }}>
-          <CompactCell label="整组毛利润额" value={money(table.totals.group_gross_profit_cny)} strong />
-          <CompactCell label="整组贸易额" value={money(table.totals.group_trade_amount_usd)} strong />
-          {table.quote_round > 1 && <CompactCell label="整组毛利润额变动" value={changeText(table.totals.group_gross_profit_change_amount, table.totals.group_gross_profit_change_rate)} />}
-          {table.quote_round > 1 && <CompactCell label="整组贸易额变动" value={changeText(table.totals.group_trade_amount_change_amount, table.totals.group_trade_amount_change_rate)} />}
-        </div>
-        <Space direction="vertical" style={{ width: "100%" }} size={8}>
-          {rows.map(row => {
-            const rowKey = `${table.quote_round}:${row.inquiry_id}`
-            return (
-              <div key={rowKey} style={{ border: "1px solid #d9e2ec", background: "#fff" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(128px, 1fr))" }}>
-                  <CompactCell label="系列" value={val(row.series)} />
-                  <CompactCell label="询单号" value={<Button type="link" size="small" onClick={() => onOpenInquiry(row.inquiry_id)}>{row.inquiry_no}</Button>} strong />
-                  <CompactCell label="订单号" value={val(row.customer_order_no)} />
-                  <CompactCell label="数量" value={val(row.quantity)} />
-                  <CompactCell label="选用工厂" value={val(row.selected_factory)} />
-                  <CompactCell
-                    label={table.quote_round === 1 ? "报价利润值" : "净利润值"}
-                    value={
-                      <InputNumber
-                        size="small"
-                        controls={false}
-                        min={0}
-                        precision={2}
-                        value={row.profit_value}
-                        style={{ width: "100%" }}
-                        disabled={savingKey === rowKey}
-                        onBlur={event => {
-                          const value = event.target.value === "" ? null : Number(event.target.value)
-                          if (value !== row.profit_value) onProfitChange(row, table.quote_round, Number.isNaN(value) ? null : value)
-                        }}
-                        onPressEnter={event => {
-                          const target = event.currentTarget as HTMLInputElement
-                          const value = target.value === "" ? null : Number(target.value)
-                          if (value !== row.profit_value) onProfitChange(row, table.quote_round, Number.isNaN(value) ? null : value)
-                        }}
-                      />
-                    }
+      <div style={{ overflowX: "auto", background: "#f8fafc" }}>
+        <table style={{ width: "100%", minWidth: isFirstRound ? 1320 : 2050, borderCollapse: "collapse", tableLayout: "fixed", fontSize: 13 }}>
+          <thead>
+            <tr>
+              {(isFirstRound
+                ? ["系列", "询单号", "订单号", "图片", "数量", "选用工厂", "报价利润值", "客人价格", "毛利润额", "整组毛利润额", "贸易额", "整组贸易额"]
+                : ["系列", "询单号", "订单号", "图片", "数量", "选用工厂", "净利润值", "客人价格", "客人价格变动差价", "客人价格变动比率", "毛利润额", "毛利润额变动情况", "整组毛利润额", "整组毛利润额变动情况", "贸易额", "整组贸易额", "整组贸易额变动情况"]
+              ).map(label => <th key={label} style={{ ...tableHeaderStyle, border: "1px solid #d9e2ec", padding: "8px 6px", textAlign: "center", width: label === "图片" ? 80 : label.includes("变动") ? 145 : 110 }}>{label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {groups.flatMap(group => group.items.map((row, index) => {
+              const rowKey = `${table.quote_round}:${row.inquiry_id}`
+              const first = index === 0
+              const saving = savingKey === rowKey
+              const missing = calculationMissing(row)
+              const calculationInputs = (
+                <Space direction="vertical" size={8} style={{ width: 260 }}>
+                  <Text type="secondary">填写后由正式 QuoteItem 公式重新计算毛利润与贸易额。</Text>
+                  <label>当下汇率</label>
+                  <InlineNumberInput value={row.current_exchange_rate} disabled={!canEdit || saving} precision={4} onCommit={value => onInputChange(row, table.quote_round, { current_exchange_rate: value })} />
+                  <label>佣金（%）</label>
+                  <InlineNumberInput value={row.commission_pct} disabled={!canEdit || saving} precision={2} onCommit={value => onInputChange(row, table.quote_round, { commission_pct: value })} />
+                  <label>港杂费（CNY/件）</label>
+                  <InlineNumberInput value={row.port_misc_fee_cny} disabled={!canEdit || saving} onCommit={value => onInputChange(row, table.quote_round, { port_misc_fee_cny: value })} />
+                  <label>测试费（CNY/件）</label>
+                  <InlineNumberInput value={row.test_fee_cny} disabled={!canEdit || saving} onCommit={value => onInputChange(row, table.quote_round, { test_fee_cny: value })} />
+                  <label>其他费用（CNY/件）</label>
+                  <InlineNumberInput value={row.misc_fee_cny} disabled={!canEdit || saving} onCommit={value => onInputChange(row, table.quote_round, { misc_fee_cny: value })} />
+                </Space>
+              )
+              return <tr key={rowKey}>
+                {first && <td rowSpan={group.items.length} style={{ ...totalStyle, textAlign: "center" }}>{group.series}</td>}
+                <td style={cellStyle}><Button type="link" size="small" onClick={() => onOpenInquiry(row.inquiry_id)}>{row.inquiry_no}</Button></td>
+                <td style={cellStyle}>{val(row.customer_order_no)}</td>
+                <td style={{ ...cellStyle, textAlign: "center", color: "#98a2b3" }}>{row.image ? <img src={row.image} alt="产品" style={{ width: 56, height: 56, objectFit: "contain" }} /> : "暂无图片"}</td>
+                <td style={{ ...cellStyle, textAlign: "right" }}><InlineNumberInput value={row.quantity} disabled={!canEdit || saving} precision={0} onCommit={value => onInputChange(row, table.quote_round, { order_quantity: value })} /></td>
+                <td style={cellStyle}>
+                  <Select
+                    size="small"
+                    allowClear
+                    showSearch
+                    value={row.selected_factory ?? undefined}
+                    disabled={!canEdit || saving}
+                    placeholder="选择工厂"
+                    style={{ width: "100%" }}
+                    options={row.factory_options.map(option => ({ value: option.factory_name, label: `${option.factory_name} / ¥${money(option.factory_price_cny)}` }))}
+                    onChange={factoryName => {
+                      const option = row.factory_options.find(item => item.factory_name === factoryName)
+                      onInputChange(row, table.quote_round, { selected_factory: factoryName ?? null, selected_factory_price_cny: option?.factory_price_cny ?? null })
+                    }}
                   />
-                  <CompactCell label="客人价格" value={money(row.customer_price_usd)} />
-                  {table.quote_round > 1 && <CompactCell label="客人价格变动" value={changeText(row.customer_price_change_amount, row.customer_price_change_rate)} />}
-                  <CompactCell label="毛利润额" value={money(row.gross_profit_cny)} strong />
-                  {table.quote_round > 1 && <CompactCell label="毛利润额变动" value={changeText(row.gross_profit_change_amount, row.gross_profit_change_rate)} />}
-                  <CompactCell label="贸易额" value={money(row.trade_amount_usd)} />
-                </div>
-              </div>
-            )
-          })}
-        </Space>
+                </td>
+                <td style={cellStyle}>
+                  <InlineNumberInput value={row.profit_value} disabled={!canEdit || saving} onCommit={value => onInputChange(row, table.quote_round, { net_profit_pct: value })} />
+                  <Popover title="计算参数" content={calculationInputs} trigger="click">
+                    <Button type="link" size="small" style={{ padding: 0 }} disabled={!canEdit}>{missing.length ? `补充参数（缺${missing.join("、")}）` : "计算参数"}</Button>
+                  </Popover>
+                </td>
+                <td style={{ ...cellStyle, textAlign: "right" }}><InlineNumberInput value={row.customer_price_usd} disabled={!canEdit || saving} precision={4} onCommit={value => onInputChange(row, table.quote_round, { final_quote_usd: value })} /></td>
+                {!isFirstRound && <td style={{ ...cellStyle, textAlign: "right" }}>{signedMoney(row.customer_price_change_amount)}</td>}
+                {!isFirstRound && <td style={{ ...cellStyle, textAlign: "right" }}>{pct(row.customer_price_change_rate)}</td>}
+                <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>{row.gross_profit_cny == null && missing.length ? <Text type="secondary">待补：{missing.join("、")}</Text> : money(row.gross_profit_cny)}</td>
+                {!isFirstRound && <td style={{ ...cellStyle, textAlign: "right" }}>{changeText(row.gross_profit_change_amount, row.gross_profit_change_rate)}</td>}
+                {first && <td rowSpan={group.items.length} style={{ ...totalStyle, textAlign: "right" }}>{money(group.gross)}</td>}
+                {!isFirstRound && first && <td rowSpan={group.items.length} style={{ ...totalStyle, textAlign: "right" }}>{changeText(group.grossChange, group.grossChangeRate)}</td>}
+                <td style={{ ...cellStyle, textAlign: "right" }}>{money(row.trade_amount_usd)}</td>
+                {first && <td rowSpan={group.items.length} style={{ ...totalStyle, textAlign: "right" }}>{money(group.trade)}</td>}
+                {!isFirstRound && first && <td rowSpan={group.items.length} style={{ ...totalStyle, textAlign: "right" }}>{changeText(group.tradeChange, group.tradeChangeRate)}</td>}
+              </tr>
+            }))}
+          </tbody>
+        </table>
       </div>
     </Card>
   )
@@ -171,6 +269,8 @@ export default function OrderGroupDetailPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const currentUser = useCurrentUser()
+  const canEdit = currentUser.role !== "viewer"
   const [msgApi, ctx] = message.useMessage()
   const combinedIds = (searchParams.get("ids") ?? "").split(",").map(s => s.trim()).filter(Boolean)
   const isCombined = !groupId || groupId === "combined"
@@ -180,15 +280,27 @@ export default function OrderGroupDetailPage() {
     queryFn: () => isCombined ? fetchCombinedOrderGroupDetail(combinedIds) : fetchOrderGroupDetail(groupId!),
     enabled: isCombined ? combinedIds.length > 0 : !!groupId,
   })
-  const profitMutation = useMutation({
-    mutationFn: async ({ row, quoteRound, value }: { row: OrderGroupRoundPriceRow; quoteRound: number; value: number | null }) => {
+  const inputMutation = useMutation({
+    mutationFn: async ({ row, quoteRound, body }: { row: OrderGroupRoundPriceRow; quoteRound: number; body: QuoteItemUpdateBody }) => {
       if (row.quote_item_id) {
-        return updateQuoteItem(row.quote_item_id, { net_profit_pct: value })
+        return updateQuoteItem(row.quote_item_id, body)
       }
-      return createFirstRoundQuoteItem(row.inquiry_id, { net_profit_pct: value }, { quoteRound })
+      return createFirstRoundQuoteItem(row.inquiry_id, {
+        order_quantity: row.quantity,
+        selected_factory: row.selected_factory,
+        selected_factory_price_cny: row.selected_factory_price_cny,
+        net_profit_pct: row.profit_value,
+        final_quote_usd: row.customer_price_usd,
+        current_exchange_rate: row.current_exchange_rate,
+        commission_pct: row.commission_pct,
+        port_misc_fee_cny: row.port_misc_fee_cny,
+        test_fee_cny: row.test_fee_cny,
+        misc_fee_cny: row.misc_fee_cny,
+        ...body,
+      }, { quoteRound })
     },
     onSuccess: async () => {
-      msgApi.success("利润值已更新")
+      msgApi.success("报价输入已保存，计算结果已更新")
       await queryClient.invalidateQueries({ queryKey: detailQueryKey })
     },
     onError: err => msgApi.error((err as Error).message),
@@ -250,8 +362,9 @@ export default function OrderGroupDetailPage() {
               <PriceRoundTable
                 table={table}
                 onOpenInquiry={inquiryId => navigate(`/inquiry/${inquiryId}/journey`)}
-                savingKey={profitMutation.variables ? `${profitMutation.variables.quoteRound}:${profitMutation.variables.row.inquiry_id}` : null}
-                onProfitChange={(row, quoteRound, value) => profitMutation.mutate({ row, quoteRound, value })}
+                canEdit={canEdit}
+                savingKey={inputMutation.variables ? `${inputMutation.variables.quoteRound}:${inputMutation.variables.row.inquiry_id}` : null}
+                onInputChange={(row, quoteRound, body) => inputMutation.mutate({ row, quoteRound, body })}
               />
             </div>
           ))

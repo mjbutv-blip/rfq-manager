@@ -86,7 +86,11 @@ def _profit_for(inq: Inquiry, quote_item: QuoteItem | None, factory_price: float
         }
     customer_amount = final_quote_usd * qty * exchange_rate
     factory_cost = factory_price * qty
-    port_misc = (_num(quote_item.port_misc_fee_cny) or 0) * qty if quote_item else 0
+    port_misc = (
+        (_num(getattr(quote_item, "port_misc_fee_cny", None)) or 0)
+        + (_num(getattr(quote_item, "test_fee_cny", None)) or 0)
+        + (_num(getattr(quote_item, "misc_fee_cny", None)) or 0)
+    ) * qty if quote_item else 0
     commission = customer_amount * ((_num(quote_item.commission_pct) or 0) / 100) if quote_item else 0
     gross = customer_amount - factory_cost - port_misc - commission
     return {
@@ -208,6 +212,19 @@ def _round_price_table(
             "customer_price_change_amount": customer_change["amount"],
             "customer_price_change_rate": customer_change["rate"],
             "selected_factory_price_cny": selected_factory_price,
+            "factory_options": [
+                {
+                    "factory_name": quote.factory_name,
+                    "factory_price_cny": _num(quote.factory_price),
+                }
+                for quote in sorted_quotes
+                if quote.factory_name
+            ],
+            "current_exchange_rate": _exchange_rate(qitem),
+            "commission_pct": _num(getattr(qitem, "commission_pct", None)) if qitem else None,
+            "port_misc_fee_cny": _num(getattr(qitem, "port_misc_fee_cny", None)) if qitem else None,
+            "test_fee_cny": _num(getattr(qitem, "test_fee_cny", None)) if qitem else None,
+            "misc_fee_cny": _num(getattr(qitem, "misc_fee_cny", None)) if qitem else None,
             "gross_profit_cny": gross_profit,
             "gross_profit_change_amount": gross_change["amount"],
             "gross_profit_change_rate": gross_change["rate"],

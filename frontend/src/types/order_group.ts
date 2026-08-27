@@ -76,6 +76,12 @@ export interface OrderGroupRoundPriceRow {
   customer_price_change_amount: number | null
   customer_price_change_rate: number | null
   selected_factory_price_cny: number | null
+  factory_options: { factory_name: string; factory_price_cny: number }[]
+  current_exchange_rate: number | null
+  commission_pct: number | null
+  port_misc_fee_cny: number | null
+  test_fee_cny: number | null
+  misc_fee_cny: number | null
   gross_profit_cny: number | null
   gross_profit_change_amount: number | null
   gross_profit_change_rate: number | null
