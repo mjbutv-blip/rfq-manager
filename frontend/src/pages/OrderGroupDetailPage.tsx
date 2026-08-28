@@ -123,6 +123,17 @@ function calculationMissing(row: OrderGroupRoundPriceRow) {
   return missing
 }
 
+function PriceGridCell({ label, children, strong = false }: { label: string; children: React.ReactNode; strong?: boolean }) {
+  return (
+    <div style={{ minWidth: 0, borderRight: "1px solid #d9e2ec", borderBottom: "1px solid #d9e2ec" }}>
+      <div style={{ ...tableHeaderStyle, padding: "5px 8px", fontSize: 12, textAlign: "center" }}>{label}</div>
+      <div style={{ padding: "7px 8px", minHeight: 44, background: strong ? "#f8fafc" : "#fff", fontWeight: strong ? 700 : 400, display: "flex", alignItems: "center", justifyContent: "center", overflowWrap: "anywhere" }}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
 function PriceRoundTable({
   table,
   onOpenInquiry,
@@ -138,8 +149,6 @@ function PriceRoundTable({
 }) {
   const groups = groupedRoundRows(table.rows)
   const isFirstRound = table.quote_round === 1
-  const cellStyle = { border: "1px solid #d9e2ec", padding: "7px 8px", verticalAlign: "middle", background: "#fff" } as const
-  const totalStyle = { ...cellStyle, background: "#f8fafc", fontWeight: 700 } as const
 
   return (
     <Card
@@ -148,20 +157,12 @@ function PriceRoundTable({
       styles={{ header: tableHeaderStyle, body: { padding: 0 } }}
       style={{ marginBottom: 0, overflow: "hidden", borderRadius: 0 }}
     >
-      <div style={{ overflowX: "auto", background: "#f8fafc" }}>
-        <table style={{ width: "100%", minWidth: isFirstRound ? 1320 : 2050, borderCollapse: "collapse", tableLayout: "fixed", fontSize: 13 }}>
-          <thead>
-            <tr>
-              {(isFirstRound
-                ? ["系列", "询单号", "订单号", "图片", "数量", "选用工厂", "报价利润值", "客人价格", "毛利润额", "整组毛利润额", "贸易额", "整组贸易额"]
-                : ["系列", "询单号", "订单号", "图片", "数量", "选用工厂", "净利润值", "客人价格", "客人价格变动差价", "客人价格变动比率", "毛利润额", "毛利润额变动情况", "整组毛利润额", "整组毛利润额变动情况", "贸易额", "整组贸易额", "整组贸易额变动情况"]
-              ).map(label => <th key={label} style={{ ...tableHeaderStyle, border: "1px solid #d9e2ec", padding: "8px 6px", textAlign: "center", width: label === "图片" ? 80 : label.includes("变动") ? 145 : 110 }}>{label}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {groups.flatMap(group => group.items.map((row, index) => {
+      <div style={{ background: "#f8fafc", padding: 10 }}>
+        {groups.map(group => (
+          <div key={group.series} style={{ border: "1px solid #d9e2ec", marginBottom: 10, background: "#fff" }}>
+            <div style={{ background: "#eaf0f8", color: "#1f3b66", fontWeight: 700, padding: "7px 10px", borderBottom: "1px solid #d9e2ec" }}>系列：{group.series}</div>
+            {group.items.map(row => {
               const rowKey = `${table.quote_round}:${row.inquiry_id}`
-              const first = index === 0
               const saving = savingKey === rowKey
               const missing = calculationMissing(row)
               const calculationInputs = (
@@ -179,13 +180,13 @@ function PriceRoundTable({
                   <InlineNumberInput value={row.misc_fee_cny} disabled={!canEdit || saving} onCommit={value => onInputChange(row, table.quote_round, { misc_fee_cny: value })} />
                 </Space>
               )
-              return <tr key={rowKey}>
-                {first && <td rowSpan={group.items.length} style={{ ...totalStyle, textAlign: "center" }}>{group.series}</td>}
-                <td style={cellStyle}><Button type="link" size="small" onClick={() => onOpenInquiry(row.inquiry_id)}>{row.inquiry_no}</Button></td>
-                <td style={cellStyle}>{val(row.customer_order_no)}</td>
-                <td style={{ ...cellStyle, textAlign: "center", color: "#98a2b3" }}>{row.image ? <img src={row.image} alt="产品" style={{ width: 56, height: 56, objectFit: "contain" }} /> : "暂无图片"}</td>
-                <td style={{ ...cellStyle, textAlign: "right" }}><InlineNumberInput value={row.quantity} disabled={!canEdit || saving} precision={0} onCommit={value => onInputChange(row, table.quote_round, { order_quantity: value })} /></td>
-                <td style={cellStyle}>
+              return <div key={rowKey} style={{ borderBottom: "2px solid #aebed2" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
+                  <PriceGridCell label="询单号"><Button type="link" size="small" onClick={() => onOpenInquiry(row.inquiry_id)}>{row.inquiry_no}</Button></PriceGridCell>
+                  <PriceGridCell label="订单号">{val(row.customer_order_no)}</PriceGridCell>
+                  <PriceGridCell label="图片">{row.image ? <img src={row.image} alt="产品" style={{ width: 40, height: 40, objectFit: "contain" }} /> : <Text type="secondary">暂无图片</Text>}</PriceGridCell>
+                  <PriceGridCell label="数量"><InlineNumberInput value={row.quantity} disabled={!canEdit || saving} precision={0} onCommit={value => onInputChange(row, table.quote_round, { order_quantity: value })} /></PriceGridCell>
+                  <PriceGridCell label="选用工厂">
                   <Select
                     size="small"
                     allowClear
@@ -200,27 +201,37 @@ function PriceRoundTable({
                       onInputChange(row, table.quote_round, { selected_factory: factoryName ?? null, selected_factory_price_cny: option?.factory_price_cny ?? null })
                     }}
                   />
-                </td>
-                <td style={cellStyle}>
+                  </PriceGridCell>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+                  <PriceGridCell label={isFirstRound ? "报价利润值" : "净利润值"}>
+                    <div style={{ width: "100%" }}>
                   <InlineNumberInput value={row.profit_value} disabled={!canEdit || saving} onCommit={value => onInputChange(row, table.quote_round, { net_profit_pct: value })} />
                   <Popover title="计算参数" content={calculationInputs} trigger="click">
                     <Button type="link" size="small" style={{ padding: 0 }} disabled={!canEdit}>{missing.length ? `补充参数（缺${missing.join("、")}）` : "计算参数"}</Button>
                   </Popover>
-                </td>
-                <td style={{ ...cellStyle, textAlign: "right" }}><InlineNumberInput value={row.customer_price_usd} disabled={!canEdit || saving} precision={4} onCommit={value => onInputChange(row, table.quote_round, { final_quote_usd: value })} /></td>
-                {!isFirstRound && <td style={{ ...cellStyle, textAlign: "right" }}>{signedMoney(row.customer_price_change_amount)}</td>}
-                {!isFirstRound && <td style={{ ...cellStyle, textAlign: "right" }}>{pct(row.customer_price_change_rate)}</td>}
-                <td style={{ ...cellStyle, textAlign: "right", fontWeight: 700 }}>{row.gross_profit_cny == null && missing.length ? <Text type="secondary">待补：{missing.join("、")}</Text> : money(row.gross_profit_cny)}</td>
-                {!isFirstRound && <td style={{ ...cellStyle, textAlign: "right" }}>{changeText(row.gross_profit_change_amount, row.gross_profit_change_rate)}</td>}
-                {first && <td rowSpan={group.items.length} style={{ ...totalStyle, textAlign: "right" }}>{money(group.gross)}</td>}
-                {!isFirstRound && first && <td rowSpan={group.items.length} style={{ ...totalStyle, textAlign: "right" }}>{changeText(group.grossChange, group.grossChangeRate)}</td>}
-                <td style={{ ...cellStyle, textAlign: "right" }}>{money(row.trade_amount_usd)}</td>
-                {first && <td rowSpan={group.items.length} style={{ ...totalStyle, textAlign: "right" }}>{money(group.trade)}</td>}
-                {!isFirstRound && first && <td rowSpan={group.items.length} style={{ ...totalStyle, textAlign: "right" }}>{changeText(group.tradeChange, group.tradeChangeRate)}</td>}
-              </tr>
-            }))}
-          </tbody>
-        </table>
+                    </div>
+                  </PriceGridCell>
+                  <PriceGridCell label="客人价格"><InlineNumberInput value={row.customer_price_usd} disabled={!canEdit || saving} precision={4} onCommit={value => onInputChange(row, table.quote_round, { final_quote_usd: value })} /></PriceGridCell>
+                  <PriceGridCell label="毛利润额" strong>{row.gross_profit_cny == null && missing.length ? <Text type="secondary">待补：{missing.join("、")}</Text> : money(row.gross_profit_cny)}</PriceGridCell>
+                  <PriceGridCell label="贸易额">{money(row.trade_amount_usd)}</PriceGridCell>
+                </div>
+                {!isFirstRound && <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+                  <PriceGridCell label="客人价格变动差价">{signedMoney(row.customer_price_change_amount)}</PriceGridCell>
+                  <PriceGridCell label="客人价格变动比率">{pct(row.customer_price_change_rate)}</PriceGridCell>
+                  <PriceGridCell label="毛利润额变动情况">{changeText(row.gross_profit_change_amount, row.gross_profit_change_rate)}</PriceGridCell>
+                  <PriceGridCell label="贸易额变动情况">{changeText(row.trade_amount_change_amount, row.trade_amount_change_rate)}</PriceGridCell>
+                </div>}
+              </div>
+            })}
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${isFirstRound ? 2 : 4}, minmax(0, 1fr))` }}>
+              <PriceGridCell label="整组毛利润额" strong>{money(group.gross)}</PriceGridCell>
+              {!isFirstRound && <PriceGridCell label="整组毛利润额变动情况" strong>{changeText(group.grossChange, group.grossChangeRate)}</PriceGridCell>}
+              <PriceGridCell label="整组贸易额" strong>{money(group.trade)}</PriceGridCell>
+              {!isFirstRound && <PriceGridCell label="整组贸易额变动情况" strong>{changeText(group.tradeChange, group.tradeChangeRate)}</PriceGridCell>}
+            </div>
+          </div>
+        ))}
       </div>
     </Card>
   )
