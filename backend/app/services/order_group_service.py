@@ -185,6 +185,8 @@ def _round_price_table(
         if gross_profit is None and qitem:
             gross_profit = _profit_for(inq, qitem, selected_factory_price)["gross_profit_cny"]
         trade_amount = _num(qitem.trade_amount_usd) if qitem else (_num(inq.trade_amount) if quote_round == 1 else None)
+        if trade_amount is None and customer_price is not None and quantity is not None:
+            trade_amount = customer_price * quantity
 
         if gross_profit is not None:
             total_gross_profit += gross_profit
