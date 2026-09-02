@@ -168,6 +168,15 @@ export interface JourneyHistoricalPriceReference {
     quote_date: string | null
     inquiry_date: string | null
     order_status: string | null
+    style_no: string | null
+    differences: {
+      field: string
+      label: string
+      current_value: string | number | null
+      historical_value: string | number | null
+      status: "different" | "incomplete"
+      difference_pct?: number | null
+    }[]
   }[]
 }
 

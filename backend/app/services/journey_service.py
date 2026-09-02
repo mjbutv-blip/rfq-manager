@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.factory import Factory
 from app.models.factory_quote_record import FactoryQuoteRecord
 from app.models.inquiry import Inquiry
+from app.models.inquiry_item import InquiryItem
 from app.models.quote import QuoteItem
 
 LOWEST_GAP_WARN_PCT = 0.15
@@ -515,7 +516,82 @@ async def build_historical_price_reference(
             chosen_tier = label
             break
     sample_rows = sorted(rows, key=lambda row: (float(row[0].factory_price), row[1].inquiry_date or row[0].created_at), reverse=False)[:20] if values else []
-    samples = [
+    current_items = list((await db.scalars(
+        select(InquiryItem).where(InquiryItem.inquiry_id == inquiry.id)
+    )).all())
+    sample_inquiry_ids = {sample_inq.id for _, sample_inq in sample_rows}
+    historical_items = list((await db.scalars(
+        select(InquiryItem).where(InquiryItem.inquiry_id.in_(sample_inquiry_ids))
+    )).all()) if sample_inquiry_ids else []
+    items_by_inquiry: dict[Any, list[InquiryItem]] = {}
+    for item in historical_items:
+        items_by_inquiry.setdefault(item.inquiry_id, []).append(item)
+
+    def clean(value: Any) -> Any:
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+    def best_item(candidates: list[InquiryItem], reference: InquiryItem | None) -> InquiryItem | None:
+        if not candidates:
+            return None
+        if reference is None:
+            return candidates[0]
+
+        def score(candidate: InquiryItem) -> int:
+            return sum(
+                1
+                for field in ("style_no", "product_name", "series_name", "product_category")
+                if clean(getattr(reference, field, None))
+                and clean(getattr(reference, field, None)) == clean(getattr(candidate, field, None))
+            )
+
+        return max(candidates, key=score)
+
+    def comparison_for(sample_inq: Inquiry) -> tuple[InquiryItem | None, list[dict[str, Any]]]:
+        sample_candidates = items_by_inquiry.get(sample_inq.id, [])
+        sample_item = best_item(sample_candidates, current_items[0] if current_items else None)
+        current_item = best_item(current_items, sample_item)
+        fields = [
+            ("fabric_quality", "面料品质"),
+            ("quantity", "数量"),
+            ("color_print", "颜色/印花"),
+            ("process_description", "做工"),
+            ("size_range", "尺码范围"),
+        ]
+        differences: list[dict[str, Any]] = []
+        for field, label in fields:
+            current_value = clean(getattr(current_item, field, None)) if current_item else None
+            historical_value = clean(getattr(sample_item, field, None)) if sample_item else None
+            if field == "quantity":
+                current_value = current_value or inquiry.quantity
+                historical_value = historical_value or sample_inq.quantity
+            if current_value is None or historical_value is None:
+                differences.append({
+                    "field": field,
+                    "label": label,
+                    "current_value": current_value,
+                    "historical_value": historical_value,
+                    "status": "incomplete",
+                })
+            elif str(current_value).strip().casefold() != str(historical_value).strip().casefold():
+                difference = {
+                    "field": field,
+                    "label": label,
+                    "current_value": current_value,
+                    "historical_value": historical_value,
+                    "status": "different",
+                }
+                if field == "quantity" and float(historical_value):
+                    difference["difference_pct"] = (float(current_value) / float(historical_value) - 1) * 100
+                differences.append(difference)
+        return sample_item, differences
+
+    samples = []
+    for record, sample_inq in sample_rows:
+        sample_item, differences = comparison_for(sample_inq)
+        samples.append(
         {
             "inquiry_id": str(sample_inq.id),
             "inquiry_no": sample_inq.inquiry_no,
@@ -533,9 +609,10 @@ async def build_historical_price_reference(
             "quote_date": record.quote_date.isoformat() if record.quote_date else None,
             "inquiry_date": sample_inq.inquiry_date.isoformat() if sample_inq.inquiry_date else None,
             "order_status": sample_inq.order_status,
+            "style_no": sample_item.style_no if sample_item else None,
+            "differences": differences,
         }
-        for record, sample_inq in sample_rows
-    ]
+        )
     summary = _historical_summary(values, factory_analysis.get("lowest_price"), factory_analysis.get("selected_factory_price"), samples)
     summary["match_rule"] = chosen_tier
     summary["currency"] = currency

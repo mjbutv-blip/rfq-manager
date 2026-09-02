@@ -725,27 +725,38 @@ function HistoricalSamplesTable({ historical }: { historical: JourneyHistoricalP
     </td>
   )
 
-  return (
-    <div style={{ border: "1px solid #d9d9d9", padding: 8, background: "#fff" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 12 }}>
-        <tbody>
-          <tr>{["客人代码", "询单号", "品类", "品名", "数量", "工厂", "价格", "订单状态"].map(h => sampleCell(h, { header: true }))}</tr>
-          {historical.samples.slice(0, 8).map(s => (
-            <tr key={`${s.inquiry_id}-${s.factory_name}-${s.factory_price}-${s.quote_round}`}>
-              {sampleCell(dash(s.customer_code))}
-              {sampleCell(dash(s.inquiry_no))}
-              {sampleCell(dash(s.product_category))}
-              {sampleCell(dash(s.product_name))}
-              {sampleCell("—")}
-              {sampleCell(dash(s.factory_name))}
-              {sampleCell(priceWithUnit(s.factory_price, s.currency, s.price_unit))}
-              {sampleCell(dash(s.order_status))}
+  return <Space direction="vertical" size={12} style={{ width: "100%" }}>
+    {historical.samples.slice(0, 20).map(s => (
+      <div key={`${s.inquiry_id}-${s.factory_name}-${s.factory_price}-${s.quote_round}`} style={{ border: "1px solid #d9d9d9", background: "#fff" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 12 }}>
+          <tbody>
+            <tr>{["询单号", "款号", "品名", "工厂", "历史价格", "订单状态"].map(h => sampleCell(h, { header: true }))}</tr>
+            <tr>
+              {sampleCell(dash(s.inquiry_no))}{sampleCell(dash(s.style_no))}{sampleCell(dash(s.product_name))}
+              {sampleCell(dash(s.factory_name))}{sampleCell(priceWithUnit(s.factory_price, s.currency, s.price_unit), { strong: true })}{sampleCell(dash(s.order_status))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
+          </tbody>
+        </table>
+        <div style={{ padding: "8px 10px" }}>
+          <Text strong style={{ fontSize: 12 }}>与当前询单的差异</Text>
+          {s.differences?.length ? (
+            <div style={{ marginTop: 6, display: "grid", gap: 6 }}>
+              {s.differences.map(diff => (
+                <div key={diff.field} style={{ padding: "6px 8px", background: diff.status === "incomplete" ? "#fafafa" : "#fff7e6", borderLeft: `3px solid ${diff.status === "incomplete" ? "#bfbfbf" : "#fa8c16"}`, fontSize: 12 }}>
+                  <Text strong>{diff.label}：</Text>
+                  {diff.status === "incomplete" ? (
+                    <Text type="secondary">信息不完整（当前：{dash(diff.current_value)}；历史：{dash(diff.historical_value)}）</Text>
+                  ) : (
+                    <span>当前 {dash(diff.current_value)}；历史 {dash(diff.historical_value)}{diff.difference_pct != null ? `；相差 ${diff.difference_pct >= 0 ? "+" : ""}${diff.difference_pct.toFixed(1)}%` : ""}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : <div style={{ marginTop: 6 }}><Text type="success">已填写项目中未发现规格差异</Text></div>}
+        </div>
+      </div>
+    ))}
+  </Space>
 }
 
 function HistoricalSamplesDrawer({
@@ -762,7 +773,7 @@ function HistoricalSamplesDrawer({
       title={`历史样本明细（${historical?.sample_count ?? 0}）`}
       open={open}
       onClose={onClose}
-      width={860}
+      width={980}
       destroyOnClose
     >
       {historical?.samples.length ? (
