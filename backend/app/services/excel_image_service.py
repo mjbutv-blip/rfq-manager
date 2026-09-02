@@ -83,16 +83,15 @@ def extract_excel_row_images(file_bytes: bytes, sheet_names: set[str] | None = N
             if encoded:
                 result.setdefault((sheet.title, marker.row + 1), encoded)
         if wps_images:
-            for row in sheet.iter_rows():
-                for cell in row:
-                    if not isinstance(cell.value, str):
-                        continue
-                    match = _DISPIMG_RE.search(cell.value)
-                    if not match:
-                        continue
-                    encoded = _data_url(wps_images.get(match.group(1), b""))
-                    if encoded:
-                        result[(sheet.title, cell.row)] = encoded
+            for cell in sheet._cells.values():
+                if not isinstance(cell.value, str):
+                    continue
+                match = _DISPIMG_RE.search(cell.value)
+                if not match:
+                    continue
+                encoded = _data_url(wps_images.get(match.group(1), b""))
+                if encoded:
+                    result[(sheet.title, cell.row)] = encoded
     return result
 
 
