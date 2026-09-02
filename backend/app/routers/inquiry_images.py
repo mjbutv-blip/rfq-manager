@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import UserDep, normalize_user_role
+from app.core.permissions import UserDep
 from app.database import get_db
 from app.models import Inquiry, InquiryItem
 from app.services.base_inquiry_import_service import _parse_workbook
@@ -25,7 +25,7 @@ async def backfill_inquiry_images(
     file: UploadFile = File(...),
     apply: bool = Form(False),
 ):
-    if normalize_user_role(user.role) != "admin":
+    if user.role != "admin":
         raise HTTPException(status_code=403, detail="仅管理员可批量回填询单图片")
     filename = file.filename or "quotation.xlsx"
     if not filename.lower().endswith((".xlsx", ".xlsm")):
