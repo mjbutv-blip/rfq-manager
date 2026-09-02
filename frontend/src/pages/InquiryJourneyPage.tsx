@@ -644,7 +644,6 @@ function JourneyTopSummary({
         ? <img src={inquiry.image} alt="产品" style={{ width: 46, height: 46, objectFit: "contain", display: "block", margin: "0 auto" }} />
         : "—",
     },
-    { label: "品类", value: dash(inquiry.product_category) },
     { label: "品名", value: dash(inquiry.style_count > 1 ? "多款式" : inquiry.product_name) },
     { label: "款式数量", value: styleCountValue, highlight: inquiry.style_count > 1 },
     { label: "订单状态", value: dash(inquiry.order_status) },
