@@ -473,7 +473,7 @@ function FirstRoundExcelSheet({
               {factoryQuoteColumns.map((it, idx) => <Fragment key={`first-rank-${it?.id ?? idx}`}>{quoteCell(it ? quoteRankTag(quoteRankLabel(it, fa)) : quoteRankTag("—"), { muted: !it })}</Fragment>)}
             </tr>
             <tr>
-              {quoteCell("各个工厂价格相差比率", { header: true })}
+              {quoteCell("同最低工厂价格比率", { header: true })}
               {factoryQuoteColumns.map((it, idx) => <Fragment key={`first-gap-${it?.id ?? idx}`}>{quoteCell(it ? quoteGapRatio(it, fa) : "—", { muted: !it })}</Fragment>)}
             </tr>
             {reason && <tr>{cell(reason, { colSpan: 10, muted: true })}</tr>}
@@ -959,7 +959,7 @@ function SecondRoundExcelBlock({
             {quoteSlots.map((it, idx) => <Fragment key={`second-rank-${it?.id ?? idx}`}>{quoteCell(it ? quoteRankTag(quoteRankLabel(it, round.price_analysis)) : quoteRankTag("—"), { muted: !it })}</Fragment>)}
           </tr>
           <tr>
-            {quoteCell("各个工厂价格相差比率", { header: true })}
+            {quoteCell("同最低工厂价格比率", { header: true })}
             {quoteSlots.map((it, idx) => <Fragment key={`second-gap-${it?.id ?? idx}`}>{quoteCell(it ? quoteGapRatio(it, round.price_analysis) : "—", { muted: !it })}</Fragment>)}
           </tr>
           {reason && <tr>{cell(reason, { colSpan: 10, muted: true })}</tr>}
