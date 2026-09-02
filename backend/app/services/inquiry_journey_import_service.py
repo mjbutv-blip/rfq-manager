@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import crud
 from app.core.permissions import can_edit_inquiry
-from app.models import Factory, FactoryQuoteRecord, Inquiry, OperationLog, QuoteItem
+from app.models import Factory, FactoryQuoteRecord, Inquiry, InquiryItem, OperationLog, QuoteItem
+from app.services.excel_image_service import extract_excel_row_images
 from app.services.operation_log_service import log_kwargs_from_user, safe_log
 
 PRICE_UNIT = "件"
@@ -246,6 +247,7 @@ class ParsedInquiry:
     factory_quotes: list[FactoryQuoteCandidate] = field(default_factory=list)
     needs_confirmation: list[dict[str, Any]] = field(default_factory=list)
     parse_errors: list[str] = field(default_factory=list)
+    image_data_url: str | None = None
 
 
 def _clean_str(v: Any) -> str | None:
@@ -375,6 +377,7 @@ def _parsed_for(records: dict[str, ParsedInquiry], inquiry_no: str | None) -> Pa
 
 def _parse_workbook(file_bytes: bytes) -> tuple[dict[str, ParsedInquiry], dict[str, Any]]:
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    row_images = extract_excel_row_images(file_bytes, {"总表", "总表海外", "海外报价表-美金"})
     records: dict[str, ParsedInquiry] = {}
     sheet_stats: dict[str, Any] = {}
 
@@ -387,6 +390,7 @@ def _parse_workbook(file_bytes: bytes) -> tuple[dict[str, ParsedInquiry], dict[s
                 continue
             rows += 1
             parsed = _parsed_for(records, inquiry_no)
+            parsed.image_data_url = parsed.image_data_url or row_images.get(("总表", r))
             parsed.excel_locations.append(f"总表!A{r}")
 
             for field, label, col, converter in (
@@ -498,6 +502,7 @@ def _parse_workbook(file_bytes: bytes) -> tuple[dict[str, ParsedInquiry], dict[s
             rows += 1
             parsed = _parsed_for(records, inquiry_no)
             parsed.excel_locations.append(f"海外报价表-美金!A{r}")
+            parsed.image_data_url = parsed.image_data_url or row_images.get(("海外报价表-美金", r))
             for field, label, col, converter in (
                 ("customer_order_no", "客户订单号", "B", _clean_optional),
                 ("product_name", "品名", "D", _clean_optional),
@@ -886,6 +891,7 @@ async def confirm_journey_import(db: AsyncSession, file_bytes: bytes, file_name:
         "created_factory_quotes": 0, "updated_factory_quotes": 0,
         "skipped_conflicts": 0, "same_factory_quotes": 0,
         "not_found": 0, "ambiguous": 0, "failed": 0,
+        "images_saved": 0,
         "row_errors": [],
     }
 
@@ -911,6 +917,27 @@ async def confirm_journey_import(db: AsyncSession, file_bytes: bytes, file_name:
         _apply_tk_port_misc_logic(parsed, inq)
         try:
             async with db.begin_nested():
+                if parsed.image_data_url:
+                    image_item = (await db.execute(
+                        select(InquiryItem).where(InquiryItem.inquiry_id == inq.id).order_by(InquiryItem.created_at.asc())
+                    )).scalars().first()
+                    if image_item is None:
+                        image_item = InquiryItem(
+                            id=uuid.uuid4(), inquiry_id=inq.id, inquiry_no=inq.inquiry_no,
+                            product_name=inq.product_name, product_category=inq.product_category,
+                            series_name=inq.series_name, quantity=inq.quantity,
+                            extra_data={"image_data_url": parsed.image_data_url, "image_source_file": file_name},
+                        )
+                        db.add(image_item)
+                        await db.flush()
+                        summary["images_saved"] += 1
+                    elif not (image_item.extra_data or {}).get("image_data_url"):
+                        image_item.extra_data = {
+                            **(image_item.extra_data or {}),
+                            "image_data_url": parsed.image_data_url,
+                            "image_source_file": file_name,
+                        }
+                        summary["images_saved"] += 1
                 inquiry_updates: dict[str, Any] = {}
                 for field, excel in _inquiry_fields_with_uploader(parsed, user).items():
                     if _is_empty(excel.value):

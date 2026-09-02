@@ -224,6 +224,7 @@ export interface JourneyInquiry {
   product_category: string | null
   product_name: string | null
   style_count: number
+  image: string | null
   series_name: string | null
   season: string | null
   group_name: string | null

@@ -638,7 +638,12 @@ function JourneyTopSummary({
     { label: "订单号", value: dash(inquiry.customer_order_no) },
     { label: "系列", value: dash(inquiry.series_name) },
     { label: "季节", value: dash(inquiry.season) },
-    { label: "图片", value: "—" },
+    {
+      label: "图片",
+      value: inquiry.image
+        ? <img src={inquiry.image} alt="产品" style={{ width: 46, height: 46, objectFit: "contain", display: "block", margin: "0 auto" }} />
+        : "—",
+    },
     { label: "品类", value: dash(inquiry.product_category) },
     { label: "品名", value: dash(inquiry.style_count > 1 ? "多款式" : inquiry.product_name) },
     { label: "款式数量", value: styleCountValue, highlight: inquiry.style_count > 1 },

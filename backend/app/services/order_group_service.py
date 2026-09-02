@@ -9,7 +9,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import can_view_inquiry
-from app.models import FactoryQuoteRecord, Inquiry, OrderGroup, OrderGroupItem, QuoteItem
+from app.models import FactoryQuoteRecord, Inquiry, InquiryItem, OrderGroup, OrderGroupItem, QuoteItem
+from app.services.excel_image_service import inquiry_image_from_items
 
 DOMESTIC = "domestic"
 
@@ -156,6 +157,7 @@ def _round_price_table(
     factory_quotes: list[FactoryQuoteRecord],
     quote_round: int,
     previous_rows_by_inquiry: dict[str, dict[str, Any]] | None = None,
+    images_by_inquiry: dict[uuid.UUID, str] | None = None,
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     total_gross_profit = 0.0
@@ -206,7 +208,7 @@ def _round_price_table(
             "series": inq.series_name or inq.product_category or inq.group_name,
             "inquiry_no": inq.inquiry_no,
             "customer_order_no": inq.customer_order_no,
-            "image": None,
+            "image": (images_by_inquiry or {}).get(inq.id),
             "quantity": quantity,
             "selected_factory": selected_factory,
             "profit_value": _num(qitem.net_profit_pct) if qitem else None,
@@ -273,7 +275,16 @@ def build_order_group_analysis(
     inquiries: list[Inquiry],
     quote_items: list[QuoteItem],
     factory_quotes: list[FactoryQuoteRecord],
+    inquiry_items: list[InquiryItem] | None = None,
 ) -> dict[str, Any]:
+    items_by_inquiry: dict[uuid.UUID, list[InquiryItem]] = defaultdict(list)
+    for item in inquiry_items or []:
+        items_by_inquiry[item.inquiry_id].append(item)
+    images_by_inquiry = {
+        inquiry_id: image
+        for inquiry_id, items in items_by_inquiry.items()
+        if (image := inquiry_image_from_items(items))
+    }
     quote_by_inquiry = {inq.id: _quote_item_for(inq.id, quote_items) for inq in inquiries}
     inquiry_rows: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -407,7 +418,7 @@ def build_order_group_analysis(
     round_price_tables = []
     previous_lookup: dict[str, dict[str, Any]] | None = None
     for round_no in available_rounds:
-        table = _round_price_table(inquiries, quote_items, factory_quotes, round_no, previous_lookup)
+        table = _round_price_table(inquiries, quote_items, factory_quotes, round_no, previous_lookup, images_by_inquiry)
         round_price_tables.append(table)
         previous_lookup = _round_lookup(table)
 
@@ -482,6 +493,7 @@ async def get_order_group_detail(db: AsyncSession, group_id: uuid.UUID, user) ->
     inquiry_ids = [inq.id for inq in inquiries]
     quote_items = (await db.execute(select(QuoteItem).where(QuoteItem.inquiry_id.in_(inquiry_ids)))).scalars().all()
     factory_quotes = (await db.execute(select(FactoryQuoteRecord).where(FactoryQuoteRecord.inquiry_id.in_(inquiry_ids)))).scalars().all()
+    inquiry_items = (await db.execute(select(InquiryItem).where(InquiryItem.inquiry_id.in_(inquiry_ids)))).scalars().all()
     return {
         "group": {
             "id": str(group.id),
@@ -507,7 +519,7 @@ async def get_order_group_detail(db: AsyncSession, group_id: uuid.UUID, user) ->
             }
             for item in items
         ],
-        "analysis": build_order_group_analysis(inquiries, quote_items, factory_quotes),
+        "analysis": build_order_group_analysis(inquiries, quote_items, factory_quotes, inquiry_items),
     }
 
 
@@ -526,6 +538,7 @@ async def get_combined_order_group_detail(db: AsyncSession, group_ids: list[uuid
     inquiry_ids = [inq.id for inq in inquiries]
     quote_items = (await db.execute(select(QuoteItem).where(QuoteItem.inquiry_id.in_(inquiry_ids)))).scalars().all() if inquiry_ids else []
     factory_quotes = (await db.execute(select(FactoryQuoteRecord).where(FactoryQuoteRecord.inquiry_id.in_(inquiry_ids)))).scalars().all() if inquiry_ids else []
+    inquiry_items = (await db.execute(select(InquiryItem).where(InquiryItem.inquiry_id.in_(inquiry_ids)))).scalars().all() if inquiry_ids else []
     source_files = sorted({g.source_file_name for g in groups if g.source_file_name})
     group_names = sorted({g.group_name for g in groups if g.group_name})
     return {
@@ -553,5 +566,5 @@ async def get_combined_order_group_detail(db: AsyncSession, group_ids: list[uuid
             }
             for item in items
         ],
-        "analysis": build_order_group_analysis(inquiries, quote_items, factory_quotes),
+        "analysis": build_order_group_analysis(inquiries, quote_items, factory_quotes, inquiry_items),
     }

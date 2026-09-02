@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import crud
 from app.core.permissions import can_edit_inquiry
 from app.models import Customer, ImportBatch, ImportRow, Inquiry, InquiryItem, OperationLog, OrderGroup, OrderGroupItem, OrderSeries, OrderSeriesItem
+from app.services.excel_image_service import extract_excel_row_images
 from app.services.excel_parser import _load_workbook
 from app.services.operation_log_service import log_kwargs_from_user, safe_log
 
@@ -429,6 +430,7 @@ def _detect_order_group_candidates(rows: list[BaseImportRow], visual_signals: di
 
 def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None, file_name: str = "") -> tuple[list[BaseImportRow], dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     wb = _load_workbook(file_bytes)
+    row_images = extract_excel_row_images(file_bytes, set(SOURCE_SHEETS))
     rows: list[BaseImportRow] = []
     sheet_stats: dict[str, Any] = {}
     visual_signals: dict[tuple[str, int], str | None] = {}
@@ -531,6 +533,7 @@ def _parse_workbook(file_bytes: bytes, uniform_customer_code: str | None = None,
                     "order_group_marker": order_group_marker,
                     "order_group_marker_scope": marker_scope,
                     "customer_code_source": "excel" if _clean_optional(_cell(ws, r, customer_code_col)) else ("uniform_input" if customer_code else None),
+                    "has_image": (sheet_name, r) in row_images,
                 },
             )
             rows.append(row)
@@ -609,6 +612,7 @@ def _row_payload(row: BaseImportRow) -> dict[str, Any]:
         "notes": row.notes,
         "document_series_name": row.document_series_name,
         "order_group_marker": row.order_group_marker,
+        "has_image": bool((row.raw_data or {}).get("has_image")),
     }
 
 
@@ -773,6 +777,7 @@ async def confirm_base_inquiry_import(
     confirmed_order_group_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     preview = await preview_base_inquiry_import(db, file_bytes, file_name, user, uniform_customer_code)
+    row_images = extract_excel_row_images(file_bytes, set(SOURCE_SHEETS))
     batch = await crud.create_import_batch(db, {
         "file_name": file_name,
         "uploaded_by": getattr(user, "username", None),
@@ -825,7 +830,9 @@ async def confirm_base_inquiry_import(
             notes=row_data["notes"],
             document_series_name=row_data.get("document_series_name"),
             order_group_marker=row_data.get("order_group_marker"),
+            raw_data={"has_image": row_data.get("has_image", False)},
         )
+        image_data_url = row_images.get((row.source_sheet, row.row_number))
         import_status = status
         error_message = None
 
@@ -905,6 +912,9 @@ async def confirm_base_inquiry_import(
                         key_type, key, uncertain = _item_key(row)
                         existing_item = None if uncertain else existing_items.get(row.inquiry_no or "", {}).get((key_type, key))
                         item_updates = _fill_empty_item_fields(existing_item, row) if existing_item else {}
+                        if existing_item and image_data_url and not (existing_item.extra_data or {}).get("image_data_url"):
+                            existing_item.extra_data = {**(existing_item.extra_data or {}), "image_data_url": image_data_url}
+                            item_updates["image_data_url"] = "extracted"
                         if item_updates and existing_item:
                             summary["updated_item_fields"] += len(item_updates)
                             await _log_in_session(
@@ -968,6 +978,7 @@ async def confirm_base_inquiry_import(
                                 "source_row": row.row_number,
                                 "item_identity_key": row_data.get("item_identity_key"),
                                 "item_identity_uncertain": uncertain,
+                                "image_data_url": image_data_url,
                             },
                         )
                         db.add(item)

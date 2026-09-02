@@ -202,6 +202,7 @@ async def get_inquiry_journey(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
         find_applicable_factory_quote,
         quote_item_brief,
     )
+    from app.services.excel_image_service import inquiry_image_from_items
 
     inq = await db.get(Inquiry, inquiry_id)
     if not inq:
@@ -292,6 +293,7 @@ async def get_inquiry_journey(inquiry_id: uuid.UUID, db: DbDep, user: UserDep):
             "product_category": inq.product_category,
             "product_name": style_display,
             "style_count": len(items),
+            "image": inquiry_image_from_items(items),
             "series_name": inq.series_name,
             "season": inq.season,
             "group_name": inq.group_name,
