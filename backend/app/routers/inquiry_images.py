@@ -4,6 +4,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +17,61 @@ from app.services.excel_image_service import extract_excel_row_images
 
 router = APIRouter(prefix="/inquiry-images", tags=["inquiry-images"])
 DbDep = Annotated[AsyncSession, Depends(get_db)]
+
+
+class ImageBackfillItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inquiry_no: str
+    image_data_url: str
+    source_file: str | None = None
+    source_sheet: str | None = None
+    source_row: int | None = None
+
+
+class ImageBackfillBatch(BaseModel):
+    items: list[ImageBackfillItem]
+    apply: bool = False
+
+
+@router.post("/backfill-data")
+async def backfill_inquiry_image_data(db: DbDep, user: UserDep, body: ImageBackfillBatch):
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可批量回填询单图片")
+    if len(body.items) > 25:
+        raise HTTPException(status_code=422, detail="每批最多 25 张图片")
+    summary = {"apply": body.apply, "received": len(body.items), "matched": 0, "would_update": 0, "updated": 0, "already_present": 0, "missing_inquiry": 0, "created_items": 0}
+    seen: set[str] = set()
+    for incoming in body.items:
+        inquiry_no = incoming.inquiry_no.strip()
+        if not inquiry_no or inquiry_no in seen:
+            continue
+        seen.add(inquiry_no)
+        if not incoming.image_data_url.startswith("data:image/") or len(incoming.image_data_url) > 500_000:
+            raise HTTPException(status_code=422, detail=f"{inquiry_no} 图片格式或大小不符合要求")
+        inquiry = (await db.execute(select(Inquiry).where(Inquiry.inquiry_no == inquiry_no))).scalars().first()
+        if inquiry is None:
+            summary["missing_inquiry"] += 1
+            continue
+        item = (await db.execute(select(InquiryItem).where(InquiryItem.inquiry_id == inquiry.id).order_by(InquiryItem.created_at))).scalars().first()
+        summary["matched"] += 1
+        if item is not None and (item.extra_data or {}).get("image_data_url"):
+            summary["already_present"] += 1
+            continue
+        summary["would_update"] += 1
+        if not body.apply:
+            continue
+        if item is None:
+            item = InquiryItem(id=uuid.uuid4(), inquiry_id=inquiry.id, inquiry_no=inquiry.inquiry_no, product_name=inquiry.product_name, product_category=inquiry.product_category, series_name=inquiry.series_name, quantity=inquiry.quantity, extra_data={})
+            db.add(item)
+            await db.flush()
+            summary["created_items"] += 1
+        item.extra_data = {**(item.extra_data or {}), "image_data_url": incoming.image_data_url, "image_source_file": incoming.source_file, "image_source_sheet": incoming.source_sheet, "image_source_row": incoming.source_row}
+        summary["updated"] += 1
+    if body.apply:
+        await db.commit()
+    else:
+        await db.rollback()
+    return summary
 
 
 @router.post("/backfill")
