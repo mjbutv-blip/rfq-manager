@@ -14,6 +14,7 @@ from app.routers import factory_quotes
 from app.routers import base_inquiry_import, inquiry_journey_import
 from app.routers import order_groups, order_series
 from app.routers import quote_items
+from app.routers import inquiry_images
 
 logger = logging.getLogger("rfq")
 
@@ -80,6 +81,7 @@ app.include_router(base_inquiry_import.router, prefix="/api/v1")
 app.include_router(order_groups.router, prefix="/api/v1")
 app.include_router(order_series.router, prefix="/api/v1")
 app.include_router(quote_items.router, prefix="/api/v1")
+app.include_router(inquiry_images.router, prefix="/api/v1")
 
 
 # ── 系统健康检查 ──────────────────────────────────────────────────────────────
